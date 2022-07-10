@@ -1,7 +1,13 @@
+import gzip
+import os
+import pickle
+from multiprocessing import Pool
+
 import numpy as np
 import open3d as o3d
 import PIL.Image as Image
 
+from utils.bev_generation import gen_aug_view
 from utils.onnx_utils import SemSegONNX
 from utils.transformations import gen_semantic_pc
 
@@ -164,8 +170,102 @@ class SemanticPointCloudAccumulator:
 
         return pc_velo_rgbsem, pose
 
-    def generate(self, type: str):
-        pass
+    def get_pose(self, idx: int = None) -> np.array:
+        '''
+        Returns the pose matrix w. dim (N, 3) or pose vector if given an index.
+        '''
+        if idx is None:
+            return np.array(self.poses)
+        else:
+            return np.array(self.poses[idx])
+
+    def generate_bev(self,
+                     present_idx: int,
+                     bev_num: int,
+                     bev_params: dict,
+                     aug_params: dict = None,
+                     gen_future: bool = False):
+        '''
+        Generates a single BEV representation.
+
+        Args:
+
+        Returns:
+            bevs: List of dictionaries containg probabilistic semantic gridmaps
+                  and trajectory information.
+
+        '''
+        # Build up input dictonary
+        bev_gen_inputs = {}
+
+        # 'Present' pose is origo
+        bev_frame_coords = np.array(self.poses[present_idx])
+
+        # TODO confirm axis
+        pc_present = np.concatenate(self.sem_pcs[:present_idx])
+        poses_present = np.concatenate([self.poses[:present_idx]])
+
+        # Transform 'absolute' --> 'bev' coordinates
+        pc_present[:, :3] = pc_present[:, :3] - bev_frame_coords
+        poses_present = poses_present - bev_frame_coords
+
+        bev_gen_inputs.update({
+            'pc_present': pc_present,
+            'poses_present': poses_present,
+        })
+
+        if gen_future:
+            pc_future = np.concatenate(self.sem_pcs[present_idx:])
+            poses_future = np.concatenate([self.poses[:present_idx:]])
+
+            # Transform 'absolute' --> 'bev' coordinates
+            pc_future[:, :3] = pc_future[:, :3] - bev_frame_coords
+            poses_future = poses_future - bev_frame_coords
+
+            bev_gen_inputs.update({
+                'pc_future': pc_future,
+                'poses_future': poses_future,
+            })
+
+        bev_gen_inputs.update(bev_params)
+        bev_gen_inputs.update(aug_params)
+
+        # Generate BEVs in parallel
+        bev_gen_inputs = [bev_gen_inputs] * bev_num
+        pool = Pool(processes=bev_num)
+        bevs = pool.map(gen_aug_view, bev_gen_inputs)
+
+        return bevs
+
+    @staticmethod
+    def write_compressed_pickle(obj, filename, write_dir):
+        '''Converts an object into byte representation and writes a compressed file.
+        Args:
+            obj: Generic Python object.
+            filename: Name of file without file ending.
+            write_dir (str): Output path.
+        '''
+        path = os.path.join(write_dir, f"{filename}.gz")
+        pkl_obj = pickle.dumps(obj)
+        try:
+            with gzip.open(path, "wb") as f:
+                f.write(pkl_obj)
+        except IOError as error:
+            print(error)
+
+    @staticmethod
+    def read_compressed_pickle(path):
+        '''Reads a compressed binary file and return the object.
+        Args:
+            path (str): Path to the file (incl. filename)
+        '''
+        try:
+            with gzip.open(path, "rb") as f:
+                pkl_obj = f.read()
+                obj = pickle.loads(pkl_obj)
+                return obj
+        except IOError as error:
+            print(error)
 
     @staticmethod
     def pc2pcd(pc):
