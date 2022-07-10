@@ -1,12 +1,7 @@
-import os
-
 import numpy as np
 import open3d as o3d
 import PIL.Image as Image
 
-from datasets.kitti360_utils import (get_camera_intrinsics,
-                                     get_transf_matrices, idx2str,
-                                     read_pc_bin_file)
 from utils.onnx_utils import SemSegONNX
 from utils.transformations import gen_semantic_pc
 
@@ -17,7 +12,18 @@ class SemanticPointCloudAccumulator:
     Based on the Open3D point cloud library
     Ref: http://www.open3d.org/
 
-    How to use:
+    Usage pattern 1: Integrate observations into a semantic point cloud in a
+                     common vector space
+
+        sem_pc_accum = SemanticPointCloudAccumulator(...)
+        sem_pc_accum.integrate( [(rgb, pc), ... ] )
+        sem_pc_accum.viz_sem_vec_space()
+
+    Usage pattern 2: Generate BEV representations
+
+        sem_pc_accum = SemanticPointCloudAccumulator(...)
+        sem_pc_accum.integrate( [(rgb, pc), ... ] )
+        TODO
 
     '''
 
@@ -92,8 +98,24 @@ class SemanticPointCloudAccumulator:
                 self.sem_pcs.pop(0)
                 self.poses.pop(0)
 
-    def obs2sem_vec_space(self, rgb, pc):
+    def obs2sem_vec_space(self, rgb: Image, pc: np.array) -> tuple:
         '''
+        Converts a new observation to a semantic point cloud in the common
+        vector space.
+
+        The function maintains the most recent pointcloud and transformation
+        for the next observation update.
+
+        Args:
+            rgb: RGB image.
+            pc: Semantic point cloud as row vector matrix w. dim (N, 8)
+                [x, y, z, intensity, r, g, b, sem_idx]
+
+        Returns:
+            pc_velo_rgbsem (np.array): Semantic point cloud as row vector
+                                       matrix w. dim (N, 8)
+                                       [x, y, z, intensity, r, g, b, sem_idx]
+            pose (list): List with (x, y, z) coordinates as floats.
         '''
         # Convert point cloud to Open3D format
         pcd_new = self.pc2pcd(pc)
@@ -208,98 +230,3 @@ class SemanticPointCloudAccumulator:
         )
         line_set.colors = o3d.utility.Vector3dVector(colors)
         o3d.visualization.draw_geometries([mesh_frame, line_set, pcd])
-
-
-if __name__ == '__main__':
-
-    # Path to dataset root directory
-    kitti360_path = '/home/robin/datasets/KITTI-360'
-    # Path to ONNX semantic segmentation model
-    semseg_onnx_path = 'semseg_rn50_160k_cm.onnx'
-    # Semantic exclusion filters
-    # 0 : Road
-    # 1 : Sidewalk
-    # 2 : Building
-    # 3 : Wall
-    # 4 : Fence
-    # 5 : Pole
-    # 6 : Traffic Light
-    # 7 : Traffic Sign
-    # 8 : Vegetation
-    # 9 : Terrain
-    # 10 : Sky
-    # 11 : Person
-    # 12 : Rider
-    # 13 : Car
-    # 14 : Truck
-    # 15 : Bus
-    # 16 : Train
-    # 17 : Motorcycle
-    # 18 : Bicycle
-    filters = [10, 11, 12, 16, 18]
-
-    horizon_dist = 80
-
-    ######################
-    #  Calibration info
-    ######################
-    h_cam_velo, h_velo_cam = get_transf_matrices(kitti360_path)
-    p_cam_frame = get_camera_intrinsics(kitti360_path)
-    p_velo_frame = np.matmul(p_cam_frame, h_velo_cam)
-    c_x = p_cam_frame[0, 2]
-    c_y = p_cam_frame[1, 2]
-    f_x = p_cam_frame[0, 0]
-    f_y = p_cam_frame[1, 1]
-
-    calib_params = {}
-    calib_params['h_velo_cam'] = h_velo_cam
-    calib_params['p_cam_frame'] = p_cam_frame
-    calib_params['p_velo_frame'] = p_velo_frame
-    calib_params['c_x'] = c_x
-    calib_params['c_y'] = c_y
-    calib_params['f_x'] = f_x
-    calib_params['f_y'] = f_y
-
-    ####################
-    #  ICP parameters
-    ####################
-    icp_threshold = 1e3
-
-    # Initialize accumulator
-
-    sem_pc_accum = SemanticPointCloudAccumulator(horizon_dist, calib_params,
-                                                 icp_threshold,
-                                                 semseg_onnx_path, filters)
-
-    #################
-    #  Sample data
-    #################
-
-    pc_dir = os.path.join(kitti360_path, 'data_3d_raw',
-                          '2013_05_28_drive_0000_sync', 'velodyne_points',
-                          'data')
-    img_dir = os.path.join(kitti360_path, 'data_2d_raw',
-                           '2013_05_28_drive_0000_sync', 'image_00',
-                           'data_rect')
-    observations = []
-    for frame_idx in range(200, 250):
-        idx_str = idx2str(frame_idx)
-
-        pc_path = os.path.join(pc_dir, idx_str + '.bin')
-        pc = read_pc_bin_file(pc_path)
-
-        rgb_path = os.path.join(img_dir, idx_str + '.png')
-        rgb = Image.open(rgb_path)
-
-        observation = (rgb, pc)
-        observations.append(observation)
-
-    ############################
-    #  Integrate observations
-    ############################
-
-    sem_pc_accum.integrate(observations)
-
-    sem_pc_accum.viz_sem_vec_space()
-
-    print('Knut')
