@@ -51,4 +51,4 @@ class ObservationDataloader(ABC):
 
             return obss
         else:
-            StopIteration
+            raise StopIteration
