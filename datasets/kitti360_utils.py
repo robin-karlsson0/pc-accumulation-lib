@@ -66,10 +66,3 @@ def get_camera_intrinsics(kitti360_path: str):
             return P_cam_frame
 
     raise Exception('Did not find \'P_rect_00\' entry in calibration file.')
-
-
-def idx2str(idx: int):
-    '''
-    Convert frame idx integer to string with leading zeros
-    '''
-    return f"{idx:010d}"
