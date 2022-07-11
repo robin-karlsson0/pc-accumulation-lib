@@ -5,6 +5,7 @@ import numpy as np
 from datasets.kitti360_utils import get_camera_intrinsics, get_transf_matrices
 from obs_dataloaders.kitti360_obs_dataloader import Kitti360Dataloader
 from sem_pc_accum import SemanticPointCloudAccumulator
+from utils.bev_generation import viz_bev
 
 
 def calc_forward_dist(poses: np.array) -> np.array:
@@ -65,7 +66,7 @@ if __name__ == '__main__':
     # 18 : Bicycle
     filters = [10, 11, 12, 16, 18]
 
-    accum_horizon_dist = 80
+    accum_horizon_dist = 200  # From front to back
 
     ######################
     #  Calibration info
@@ -100,7 +101,7 @@ if __name__ == '__main__':
     #################
     #  Sample data
     #################
-    batch_size = 50  # 10
+    batch_size = 10
     sequences = [
         '2013_05_28_drive_0000_sync',
         # '2013_05_28_drive_0002_sync',
@@ -112,9 +113,8 @@ if __name__ == '__main__':
         # '2013_05_28_drive_0009_sync',
         # '2013_05_28_drive_0010_sync',
     ]
-    start_idxs = [200]  # [130, 4613, 40, 90, 50, 120, 0, 90, 0]
-    end_idxs = [250
-                ]  # [11400, 1899, 770, 11530, 6660, 9698, 2960, 13945, 3540]
+    start_idxs = [130, 4613, 40, 90, 50, 120, 0, 90, 0]
+    end_idxs = [11400, 1899, 770, 11530, 6660, 9698, 2960, 13945, 3540]
 
     dataloader = Kitti360Dataloader(kitti360_path, batch_size, sequences,
                                     start_idxs, end_idxs)
@@ -122,8 +122,8 @@ if __name__ == '__main__':
     ####################
     #  BEV parameters
     ####################
-    bevs_per_sample = 10
-    bev_horizon_dist = 5  # 40.
+    bevs_per_sample = 1
+    bev_horizon_dist = 80.
     voxel_size = 0.1
 
     aug_params = {
@@ -132,12 +132,12 @@ if __name__ == '__main__':
     }
     bev_params = {
         'view_size': 80,
-        'pixel_size': 512,
+        'pixel_size': 256,
     }
 
-    savedir = 'bevs'
+    savedir = 'bevs_tmp'
     subdir_size = 1000
-    viz_to_disk = True  # For debugging purposes
+    viz_to_disk = False  # For debugging purposes
 
     ###################
     #  Generate BEVs
@@ -146,7 +146,7 @@ if __name__ == '__main__':
     subdir_idx = 0
     bev_count = 0
 
-    for observations in dataloader:
+    for sample_idx, observations in enumerate(dataloader):
 
         sem_pc_accum.integrate(observations)
 
@@ -165,10 +165,13 @@ if __name__ == '__main__':
 
         # Check sufficient distances to past and future horizon
         d_past2present = dist(pose_past, pose_present)
-        if d_past2present < bev_horizon_dist:
-            continue
         d_present2future = dist(pose_present, pose_future)
-        if d_present2future < bev_horizon_dist:
+
+        print(f'{sample_idx*batch_size} | {bev_count} |',
+              f' back {d_past2present:.1f} | front {d_present2future:.1f}')
+
+        if (d_past2present < bev_horizon_dist
+                or d_present2future < bev_horizon_dist):
             continue
 
         bevs = sem_pc_accum.generate_bev(present_idx,
@@ -190,6 +193,11 @@ if __name__ == '__main__':
                 os.makedirs(output_path)
 
             sem_pc_accum.write_compressed_pickle(bev, filename, output_path)
+
+            # Visualize BEV samples
+            if viz_to_disk:
+                viz_file = os.path.join(output_path, f'viz_{bev_idx}.png')
+                viz_bev(bev, viz_file)
 
             bev_idx += 1
             bev_count += 1

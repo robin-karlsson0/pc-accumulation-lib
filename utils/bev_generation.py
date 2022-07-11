@@ -1,6 +1,10 @@
 import os
 import time
 
+import matplotlib as mpl
+
+mpl.use('agg')  # Must be before pyplot import
+import matplotlib.pyplot as plt
 import numpy as np
 
 from utils.bev_data_aug import (cal_warp_params, get_random_warp_params,
@@ -105,11 +109,58 @@ def dirichlet_dist_expectation(
     return gridmaps
 
 
+def get_rgb_maps(pc: np.array, pixel_size: int, fill: int = 0):
+    '''
+    Args:
+        pc: Point cloud with RGB values (N, 8)
+            [x, y, z, int, r, g, b, sem]
+    '''
+    red = []
+    green = []
+    blue = []
+    for j in range(pixel_size):
+        red.append([])
+        green.append([])
+        blue.append([])
+        for i in range(pixel_size):
+            red[j].append([])
+            green[j].append([])
+            blue[j].append([])
+
+    for idx in range(pc.shape[0]):
+        i = pc[idx, 0].astype(int)
+        j = pc[idx, 1].astype(int)
+        r = pc[idx, 4]
+        g = pc[idx, 5]
+        b = pc[idx, 6]
+        j_rev = pixel_size - 1 - j
+        red[j_rev][i].append(r)
+        green[j_rev][i].append(g)
+        blue[j_rev][i].append(b)
+
+    red_map = np.zeros((pixel_size, pixel_size))
+    green_map = np.zeros((pixel_size, pixel_size))
+    blue_map = np.zeros((pixel_size, pixel_size))
+    for j in range(pixel_size):
+        for i in range(pixel_size):
+            j_rev = pixel_size - 1 - j
+            if len(red[j_rev][i]) == 0:
+                red[j_rev][i].append(fill)
+                green[j_rev][i].append(fill)
+                blue[j_rev][i].append(fill)
+            red_map[j_rev, i] = np.median(red[j_rev][i])
+            green_map[j_rev, i] = np.median(green[j_rev][i])
+            blue_map[j_rev, i] = np.median(blue[j_rev][i])
+
+    return red_map, green_map, blue_map
+
+
 def gen_view(pc_past, pc_future, poses_past, poses_future, rot_ang, trans_dx,
              trans_dy, zoom_scalar, view_size, pixel_size):
     '''
     Args:
-        pc_dynamic: np.array (N, 7)
+        pc_past: np.array (N, 8)
+                 [x, y, z, i, r, g, b, sem]
 
     Returns:
         view: Dict with gridmaps for past and future observations.
@@ -173,6 +224,26 @@ def gen_view(pc_past, pc_future, poses_past, poses_future, rot_ang, trans_dx,
         pc_past_static, [SIDEWALK_SEM])
     pc_future_road, pc_future_notroad = separate_semantic_pc(
         pc_future_static, [ROAD_SEM])
+
+    ##############
+    #  RGB maps
+    ##############
+    red_map_past, green_map_past, blue_map_past = get_rgb_maps(pc_past_static,
+                                                               pixel_size,
+                                                               fill=255)
+    red_map_future, green_map_future, blue_map_future = get_rgb_maps(
+        pc_future_static, pixel_size, fill=255)
+
+    red_map_past /= 255.
+    green_map_past /= 255.
+    blue_map_past /= 255.
+    red_map_future /= 255.
+    green_map_future /= 255.
+    blue_map_future /= 255.
+
+    # rgb = np.stack(
+    #     (red_median, green_median, blue_median), axis=-1).astype(int)
+    # plt.imshow(rgb)
 
     ###################
     #  Elevation maps
@@ -302,9 +373,20 @@ def gen_view(pc_past, pc_future, poses_past, poses_future, rot_ang, trans_dx,
     b_1, b_2 = cal_warp_params(j_warp, j_mid, pixel_size - 1)
 
     arrays = np.stack([
-        gridmap_past_road, gridmap_past_sidewalk, gridmap_future_road,
-        gridmap_dynamic, elevmap_past_mean, elevmap_dynamic_mean,
-        intensitymap_past_mean, intensitymap_future_mean
+        gridmap_past_road,
+        gridmap_past_sidewalk,
+        gridmap_future_road,
+        gridmap_dynamic,
+        elevmap_past_mean,
+        elevmap_dynamic_mean,
+        intensitymap_past_mean,
+        intensitymap_future_mean,
+        red_map_past,
+        green_map_past,
+        blue_map_past,
+        red_map_future,
+        green_map_future,
+        blue_map_future,
     ])
     arrays = warp_dense(arrays, a_1, a_2, b_1, b_2)
     gridmap_past_road = arrays[0]
@@ -315,6 +397,12 @@ def gen_view(pc_past, pc_future, poses_past, poses_future, rot_ang, trans_dx,
     elevmap_dynamic_mean = arrays[5]
     intensitymap_past_mean = arrays[6]
     intensitymap_future_mean = arrays[7]
+    red_map_past = arrays[8]
+    green_map_past = arrays[9]
+    blue_map_past = arrays[10]
+    red_map_future = arrays[11]
+    green_map_future = arrays[12]
+    blue_map_future = arrays[13]
 
     # NOTE No idea why, but the j warping must be reverse ...
     j_warp_rev = pixel_size - j_warp
@@ -342,6 +430,12 @@ def gen_view(pc_past, pc_future, poses_past, poses_future, rot_ang, trans_dx,
     elevmap_dynamic_mean = elevmap_dynamic_mean.astype(np.float16)
     intensitymap_past_mean = intensitymap_past_mean.astype(np.float16)
     intensitymap_future_mean = intensitymap_future_mean.astype(np.float16)
+    red_map_past = red_map_past.astype(np.float16)
+    green_map_past = green_map_past.astype(np.float16)
+    blue_map_past = blue_map_past.astype(np.float16)
+    red_map_future = red_map_future.astype(np.float16)
+    green_map_future = green_map_future.astype(np.float16)
+    blue_map_future = blue_map_future.astype(np.float16)
 
     bev = {
         'gridmap_past_road': gridmap_past_road,
@@ -356,6 +450,14 @@ def gen_view(pc_past, pc_future, poses_past, poses_future, rot_ang, trans_dx,
         # 'elevmap_dynamic_mean': elevmap_dynamic_mean,
         'intensitymap_past_mean': intensitymap_past_mean,
         'intensitymap_future_mean': intensitymap_future_mean,
+        # RGB maps
+        'red_map_past': red_map_past,
+        'green_map_past': green_map_past,
+        'blue_map_past': blue_map_past,
+        'red_map_future': red_map_future,
+        'green_map_future': green_map_future,
+        'blue_map_future': blue_map_future,
+        # Poses
         'poses_past': poses_past,
         'poses_future': poses_future,
     }
@@ -392,3 +494,70 @@ def gen_aug_view(inputs):
                    trans_dx, trans_dy, zoom_scalar, view_size, pixel_size)
 
     return bev
+
+
+def viz_bev(bev, file_path):
+    '''
+    NOTE: Will leak memory if 'figsize' is set
+    '''
+    gridmap_past_road = bev['gridmap_past_road']
+    gridmap_past_sidewalk = bev['gridmap_past_sidewalk']
+    gridmap_future_road = bev['gridmap_future_road']
+
+    gridmap_dynamic = bev['gridmap_dynamic']
+
+    elevmap_past_mean = bev['elevmap_past_mean']
+
+    intensitymap_past_mean = bev['intensitymap_past_mean']
+
+    intensitymap_future_mean = bev['intensitymap_future_mean']
+
+    red_map_past = bev['red_map_past']
+    green_map_past = bev['green_map_past']
+    blue_map_past = bev['blue_map_past']
+    red_map_future = bev['red_map_future']
+    green_map_future = bev['green_map_future']
+    blue_map_future = bev['blue_map_future']
+
+    poses_past = bev['poses_past']
+    poses_future = bev['poses_future']
+
+    # RGB maps are assumed to be float arrays w. values (0, 1)
+    rgb_past = np.stack((red_map_past, green_map_past, blue_map_past), axis=-1)
+    rgb_future = np.stack((red_map_future, green_map_future, blue_map_future),
+                          axis=-1)
+    rgb_past = (rgb_past * 255).astype(int)
+    rgb_future = (rgb_future * 255).astype(int)
+
+    H, _ = gridmap_past_road.shape
+
+    fig = plt.figure(figsize=(32, 18))
+    plt.subplot(2, 5, 1)
+    plt.imshow(gridmap_past_road, vmin=0, vmax=1)
+    plt.plot(poses_past[:, 0], H - poses_past[:, 1], 'k-')
+    plt.subplot(2, 5, 2)
+    plt.imshow(gridmap_past_sidewalk, vmin=0, vmax=1)
+    plt.subplot(2, 5, 3)
+    plt.imshow(intensitymap_past_mean, vmin=0, vmax=1)
+    plt.subplot(2, 5, 4)
+    plt.imshow(gridmap_dynamic, vmin=0, vmax=1)
+    plt.subplot(2, 5, 5)
+    plt.imshow(elevmap_past_mean, vmin=-2, vmax=2)
+    plt.subplot(2, 5, 6)
+    plt.imshow(gridmap_future_road, vmin=0, vmax=1)
+    plt.plot(poses_future[:, 0], H - poses_future[:, 1], 'r-')
+    # plt.subplot(2,5,7)
+    # plt.imshow(intensitymap_future_max, vmin=0, vmax=1)
+    plt.subplot(2, 5, 8)
+    plt.imshow(intensitymap_future_mean, vmin=0, vmax=1)
+
+    plt.subplot(2, 5, 9)
+    plt.imshow(rgb_past)
+    plt.subplot(2, 5, 10)
+    plt.imshow(rgb_future)
+
+    plt.tight_layout()
+
+    plt.savefig(file_path)
+    plt.clf()
+    plt.close()

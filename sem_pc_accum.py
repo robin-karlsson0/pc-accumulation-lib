@@ -201,7 +201,6 @@ class SemanticPointCloudAccumulator:
         # 'Present' pose is origo
         bev_frame_coords = np.array(self.poses[present_idx])
 
-        # TODO confirm axis
         pc_present = np.concatenate(self.sem_pcs[:present_idx])
         poses_present = np.concatenate([self.poses[:present_idx]])
 
@@ -216,7 +215,7 @@ class SemanticPointCloudAccumulator:
 
         if gen_future:
             pc_future = np.concatenate(self.sem_pcs[present_idx:])
-            poses_future = np.concatenate([self.poses[:present_idx:]])
+            poses_future = np.concatenate([self.poses[present_idx:]])
 
             # Transform 'absolute' --> 'bev' coordinates
             pc_future[:, :3] = pc_future[:, :3] - bev_frame_coords
