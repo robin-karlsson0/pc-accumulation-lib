@@ -7,7 +7,7 @@ import numpy as np
 import open3d as o3d
 import PIL.Image as Image
 
-from utils.bev_generation import gen_aug_view
+from bev_generator.sem_bev import SemBEVGenerator
 from utils.onnx_utils import SemSegONNX
 from utils.transformations import gen_semantic_pc
 
@@ -71,8 +71,13 @@ class SemanticPointCloudAccumulator:
 
         self.horizon_dist = horizon_dist
 
-        self.sem_pcs = []
-        self.poses = []
+        self.sem_pcs = []  # (N)
+        self.poses = []  # (N)
+        self.seg_dists = []  # (N-1)
+
+        # BEV generator
+        self.sem_bev_generator = SemBEVGenerator(80, 512, ['road'],
+                                                 {'road': 0})
 
     def integrate(self, observations: list):
         '''
@@ -97,12 +102,24 @@ class SemanticPointCloudAccumulator:
             self.sem_pcs.append(sem_pc)
             self.poses.append(pose)
 
-            # Remove obsolete point clouds above distance horizon threshold
-            pose_xy_current = pose[:2]
-            while self.dist(np.array(self.poses[0][:2]),
-                            np.array(pose_xy_current)) > self.horizon_dist:
-                self.sem_pcs.pop(0)
-                self.poses.pop(0)
+            # Compute path segment distance
+            if len(self.poses) > 1:
+                seg_dist = self.dist(np.array(self.poses[-1]),
+                                     np.array(self.poses[-2]))
+                self.seg_dists.append(seg_dist)
+
+                # Search index where path is longer than the distance horizon
+                path_dist = 0
+                for idx in reversed(range(0, len(self.poses) - 1)):
+                    path_dist += self.seg_dists[idx]
+                    if path_dist > self.horizon_dist:
+                        # Remove elements beyond distance horizon
+                        self.sem_pcs = self.sem_pcs[idx + 1:]
+                        self.poses = self.poses[idx + 1:]
+                        self.seg_dists = self.seg_dists[idx + 1:]
+
+            print(f'    #pc {len(self.sem_pcs)} |',
+                  f'path length {np.sum(self.seg_dists):.2f}')
 
     def obs2sem_vec_space(self, rgb: Image, pc: np.array) -> tuple:
         '''
@@ -196,7 +213,8 @@ class SemanticPointCloudAccumulator:
 
         '''
         # Build up input dictonary
-        bev_gen_inputs = {}
+        pcs = {}
+        poses = {}
 
         # 'Present' pose is origo
         bev_frame_coords = np.array(self.poses[present_idx])
@@ -208,10 +226,8 @@ class SemanticPointCloudAccumulator:
         pc_present[:, :3] = pc_present[:, :3] - bev_frame_coords
         poses_present = poses_present - bev_frame_coords
 
-        bev_gen_inputs.update({
-            'pc_present': pc_present,
-            'poses_present': poses_present,
-        })
+        pcs.update({'pc_present': pc_present})
+        poses.update({'poses_present': poses_present})
 
         if gen_future:
             pc_future = np.concatenate(self.sem_pcs[present_idx:])
@@ -221,18 +237,15 @@ class SemanticPointCloudAccumulator:
             pc_future[:, :3] = pc_future[:, :3] - bev_frame_coords
             poses_future = poses_future - bev_frame_coords
 
-            bev_gen_inputs.update({
-                'pc_future': pc_future,
-                'poses_future': poses_future,
-            })
-
-        bev_gen_inputs.update(bev_params)
-        bev_gen_inputs.update(aug_params)
+            pcs.update({'pc_future': pc_future})
+            poses.update({'poses_future': poses_future})
 
         # Generate BEVs in parallel
-        bev_gen_inputs = [bev_gen_inputs] * bev_num
+        # Package inputs as a tuple for multiprocessing
+        bev_gen_inputs = [(pcs, poses)] * bev_num
         pool = Pool(processes=bev_num)
-        bevs = pool.map(gen_aug_view, bev_gen_inputs)
+        bevs = pool.map(self.sem_bev_generator.generate_multiproc,
+                        bev_gen_inputs)
 
         return bevs
 
@@ -329,3 +342,9 @@ class SemanticPointCloudAccumulator:
         )
         line_set.colors = o3d.utility.Vector3dVector(colors)
         o3d.visualization.draw_geometries([mesh_frame, line_set, pcd])
+
+    def viz_bev(self, bev, file_path):
+        '''
+        Visualizes a BEV using the BEV generator's visualization function.
+        '''
+        self.sem_bev_generator.viz_bev(bev, file_path)
