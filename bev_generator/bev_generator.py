@@ -54,29 +54,38 @@ class BEVGenerator(ABC):
         pc_present, pc_future = self.extract_pc_dict(pcs)
         poses_present, poses_future = self.extract_pose_dict(poses)
 
-        # Apply transformations (rot, trans, zoom)
         aug_view_size = zoom_scalar * self.view_size
-        pc_present = self.geometric_transform(pc_present, rot_ang, trans_dx,
-                                              trans_dy, aug_view_size)
-        pc_future = self.geometric_transform(pc_future, rot_ang, trans_dx,
-                                             trans_dy, aug_view_size)
-        poses_present = self.geometric_transform(poses_present, rot_ang,
-                                                 trans_dx, trans_dy,
-                                                 aug_view_size)
-        poses_future = self.geometric_transform(poses_future, rot_ang,
-                                                trans_dx, trans_dy,
-                                                aug_view_size)
 
-        # Metric to pixel coordinates
-        pc_present = self.pos2grid(pc_present, aug_view_size)
-        pc_future = self.pos2grid(pc_future, aug_view_size)
-        poses_present = self.pos2grid(poses_present, aug_view_size)
-        poses_future = self.pos2grid(poses_future, aug_view_size)
+        pc_present, poses_present = self.preprocess_pc_and_poses(
+            pc_present, poses_present, rot_ang, trans_dx, trans_dy,
+            aug_view_size)
+
+        if pc_future is not None:
+            pc_future, poses_future = self.preprocess_pc_and_poses(
+                pc_future, poses_future, rot_ang, trans_dx, trans_dy,
+                aug_view_size)
 
         bev = self.generate_bev(pc_present, pc_future, poses_present,
                                 poses_future, do_warping)
 
         return bev
+
+    def preprocess_pc_and_poses(self, pc, poses, rot_ang, trans_dx, trans_dy,
+                                aug_view_size):
+        '''
+        Applies transformations and converts to gridmap coordinates.
+        '''
+        # Apply transformations (rot, trans, zoom)
+        pc = self.geometric_transform(pc, rot_ang, trans_dx, trans_dy,
+                                      aug_view_size)
+        poses = self.geometric_transform(poses, rot_ang, trans_dx, trans_dy,
+                                         aug_view_size)
+
+        # Metric to pixel coordinates
+        pc = self.pos2grid(pc, aug_view_size)
+        poses = self.pos2grid(poses, aug_view_size)
+
+        return pc, poses
 
     def generate_rand_aug(self,
                           pcs: dict,

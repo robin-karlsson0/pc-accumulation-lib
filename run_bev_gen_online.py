@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 
 from datasets.kitti360_utils import get_camera_intrinsics, get_transf_matrices
@@ -63,7 +65,22 @@ if __name__ == '__main__':
     ####################
     #  BEV parameters
     ####################
-    bev_params = {'type': None}
+    bevs_per_sample = 1
+    bev_horizon_dist = 60
+    bev_dist_between_samples = 5.
+    voxel_size = 0.1
+
+    bev_params = {
+        'type': 'sem',  # Options: ['sem', 'rgb']
+        'view_size': 80,
+        'pixel_size': 512,
+        'max_trans_radius': 0.,
+        'zoom_thresh': 0.,
+    }
+
+    savedir = 'bevs_online'
+    subdir_size = 1000
+    viz_to_disk = True  # For debugging purposes
 
     # Initialize accumulator
     sem_pc_accum = SemanticPointCloudAccumulator(
@@ -79,19 +96,51 @@ if __name__ == '__main__':
     #################
     #  Sample data
     #################
-    batch_size = 50
-    sequences = ['2013_05_28_drive_0000_sync']
-    start_idxs = [200]
-    end_idxs = [250]
+    batch_size = 10
+    sequences = [
+        '2013_05_28_drive_0000_sync',
+        # '2013_05_28_drive_0002_sync',
+        # '2013_05_28_drive_0003_sync',
+        # '2013_05_28_drive_0004_sync',
+        # '2013_05_28_drive_0005_sync',
+        # '2013_05_28_drive_0006_sync',
+        # '2013_05_28_drive_0007_sync',
+        # '2013_05_28_drive_0009_sync',
+        # '2013_05_28_drive_0010_sync',
+    ]
+    start_idxs = [130]
+    # [130, 4613, 40, 90, 50, 120, 0, 90, 0]
+    end_idxs = [11400]
+    # [11400, 1899, 770, 11530, 6660, 9698, 2960, 13945, 3540]
 
     dataloader = Kitti360Dataloader(kitti360_path, batch_size, sequences,
                                     start_idxs, end_idxs)
 
-    ############################
-    #  Integrate observations
-    ############################
+    ###################
+    #  Generate BEVs
+    ###################
+    bev_idx = 0
+    subdir_idx = 0
+
     for observations in dataloader:
 
         sem_pc_accum.integrate(observations)
 
-        sem_pc_accum.viz_sem_vec_space()
+        bev = sem_pc_accum.generate_bev()
+
+        # Store BEV samples
+        if bev_idx > 1000:
+            bev_idx = 0
+            subdir_idx += 1
+        filename = f'bev_{bev_idx}.pkl'
+        output_path = f'./{savedir}/subdir{subdir_idx:03d}/'
+
+        if not os.path.isdir(output_path):
+            os.makedirs(output_path)
+
+        # Visualize BEV samples
+        if viz_to_disk:
+            viz_file = os.path.join(output_path, f'viz_{bev_idx}.png')
+            sem_pc_accum.viz_bev(bev, viz_file)
+
+        bev_idx += 1
