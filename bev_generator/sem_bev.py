@@ -12,18 +12,16 @@ class SemBEVGenerator(BEVGenerator):
     '''
 
     def __init__(self,
+                 sem_idxs: dict,
                  view_size: int,
                  pixel_size: int,
-                 sem_layers: list,
-                 sem_idxs: dict = {'road': 0}):
+                 max_trans_radius: float = 0.,
+                 zoom_thresh: float = 0.):
         '''
         Args:
             sem_layers: ['road', 'intensity', 'elevation'] etc.
         '''
-        super().__init__(view_size, pixel_size)
-
-        # List with semantic layers to generate for BEV
-        self.sem_layers = sem_layers
+        super().__init__(view_size, pixel_size, max_trans_radius, zoom_thresh)
 
         # Dictionary with semantic --> index mapping
         self.sem_idxs = sem_idxs
@@ -42,8 +40,19 @@ class SemBEVGenerator(BEVGenerator):
             poses_present: Pose matrix w. dim (N, 3) [x, y, z]
             poses_future:
         '''
-        probmap_present_road = self.gen_road_probmap(pc_present)
-        probmap_future_road = self.gen_road_probmap(pc_future)
+        dynamic_filter = [
+            self.sem_idxs['car'],
+            self.sem_idxs['truck'],
+            self.sem_idxs['bus'],
+            self.sem_idxs['motorcycle'],
+        ]
+        pc_present_dynamic, pc_present_static = self.partition_semantic_pc(
+            pc_present, dynamic_filter)
+        pc_future_dynamic, pc_future_static = self.partition_semantic_pc(
+            pc_future, dynamic_filter)
+
+        probmap_present_road = self.gen_sem_probmap(pc_present_static, 'road')
+        probmap_future_road = self.gen_sem_probmap(pc_future_static, 'road')
 
         # Warp all probability maps and poses
         if do_warping:
@@ -85,19 +94,6 @@ class SemBEVGenerator(BEVGenerator):
         }
 
         return bev
-
-    def gen_road_probmap(self, pc):
-        '''
-        '''
-        sem_idxs = [self.sem_idxs['road']]
-        pc_road, pc_not_road = self.partition_semantic_pc(pc, sem_idxs)
-        gridmap_road = self.gen_gridmap_count_map(pc_road)
-        gridmap_not_road = self.gen_gridmap_count_map(pc_not_road)
-
-        gridmaps = [gridmap_road, gridmap_not_road]
-        probmap_road, _ = self.dirichlet_dist_expectation(gridmaps)
-
-        return probmap_road
 
     def viz_bev(self, bev, file_path):
         '''

@@ -6,31 +6,11 @@ from datasets.kitti360_utils import get_camera_intrinsics, get_transf_matrices
 from obs_dataloaders.kitti360_obs_dataloader import Kitti360Dataloader
 from sem_pc_accum import SemanticPointCloudAccumulator
 
-# from utils.bev_generation import viz_bev
-
-
-def calc_forward_dist(poses: np.array) -> np.array:
-    '''
-    Calculates the Euclidean distance from first pose to all other poses.
-
-    Args:
-        poses: Spatial positions as matrix w. dim (N, 3).
-
-    Returns:
-        dists: Euclidean distances as vector w. dim (N).
-
-    '''
-    dists = poses - poses[0]
-    dists = np.sum(dists * dists, 1)
-    dists = np.sqrt(dists)
-    return dists
-
 
 def dist(pose_0: np.array, pose_1: np.array):
     '''
         Returns the Euclidean distance between two poses.
             dist = sqrt( dx**2 + dy**2 )
-
         Args:
             pose_0: 1D vector [x, y]
             pose_1:
@@ -66,8 +46,9 @@ if __name__ == '__main__':
     # 17 : Motorcycle
     # 18 : Bicycle
     filters = [10, 11, 12, 16, 18]
+    sem_idxs = {'road': 0, 'car': 13, 'truck': 14, 'bus': 15, 'motorcycle': 17}
 
-    accum_horizon_dist = 140  # From front to back
+    accum_horizon_dist = 200  # From front to back
 
     ######################
     #  Calibration info
@@ -94,15 +75,41 @@ if __name__ == '__main__':
     ####################
     icp_threshold = 1e3
 
+    ####################
+    #  BEV parameters
+    ####################
+    bevs_per_sample = 1
+    bev_horizon_dist = 60
+    bev_dist_between_samples = 5.
+    voxel_size = 0.1
+
+    bev_params = {
+        'type': 'sem',  # Options: ['sem', 'rgb']
+        'view_size': 80,
+        'pixel_size': 512,
+        'max_trans_radius': 10,
+        'zoom_thresh': 0.25,
+    }
+
+    savedir = 'bevs'
+    subdir_size = 1000
+    viz_to_disk = True  # For debugging purposes
+
     # Initialize accumulator
-    sem_pc_accum = SemanticPointCloudAccumulator(accum_horizon_dist,
-                                                 calib_params, icp_threshold,
-                                                 semseg_onnx_path, filters)
+    sem_pc_accum = SemanticPointCloudAccumulator(
+        accum_horizon_dist,
+        calib_params,
+        icp_threshold,
+        semseg_onnx_path,
+        filters,
+        sem_idxs,
+        bev_params,
+    )
 
     #################
     #  Sample data
     #################
-    batch_size = 10
+    batch_size = 5
     sequences = [
         '2013_05_28_drive_0000_sync',
         # '2013_05_28_drive_0002_sync',
@@ -122,26 +129,6 @@ if __name__ == '__main__':
     dataloader = Kitti360Dataloader(kitti360_path, batch_size, sequences,
                                     start_idxs, end_idxs)
 
-    ####################
-    #  BEV parameters
-    ####################
-    bevs_per_sample = 1
-    bev_horizon_dist = 60  # 60.
-    voxel_size = 0.1
-
-    aug_params = {
-        'max_translation_radius': 10,
-        'zoom_threshold': 0.25,
-    }
-    bev_params = {
-        'view_size': 80,
-        'pixel_size': 512,
-    }
-
-    savedir = 'bevs_debug'
-    subdir_size = 1000
-    viz_to_disk = True  # For debugging purposes
-
     ###################
     #  Generate BEVs
     ###################
@@ -149,38 +136,39 @@ if __name__ == '__main__':
     subdir_idx = 0
     bev_count = 0
 
+    pose_0 = np.zeros(3)
     for sample_idx, observations in enumerate(dataloader):
 
         sem_pc_accum.integrate(observations)
 
-        pose_past = sem_pc_accum.get_pose(0)  # (3)
-        pose_future = sem_pc_accum.get_pose(-1)  # (3)
+        incr_path_dists = sem_pc_accum.get_incremental_path_dists()
 
-        poses = sem_pc_accum.get_pose()  # (N, 3)
-
-        # Find first idx with sufficient distance to past horizon
-        d_past2idx = calc_forward_dist(poses)
-        d_ph_margin = d_past2idx - bev_horizon_dist
-        d_ph_margin[d_ph_margin < 0] = np.max(d_ph_margin)
-        present_idx = np.argmin(d_ph_margin)
-
-        pose_present = sem_pc_accum.get_pose(present_idx)
-
-        # Check sufficient distances to past and future horizon
-        d_past2present = dist(pose_past, pose_present)
-        d_present2future = dist(pose_present, pose_future)
-
-        print(f'{sample_idx*batch_size} | {bev_count} |',
-              f' back {d_past2present:.1f} | front {d_present2future:.1f}')
-
-        if (d_past2present < bev_horizon_dist
-                or d_present2future < bev_horizon_dist):
+        # Condition (1): Sufficient distance to backward horizon
+        if incr_path_dists[-1] < bev_horizon_dist:
             continue
+
+        # Find 'present' idx position
+        dists = (incr_path_dists - bev_horizon_dist)
+        present_idx = (dists > 0).argmax()
+
+        # Condition (2): Sufficient distance from present to future horizon
+        fut_dist = incr_path_dists[-1] - incr_path_dists[present_idx]
+        if fut_dist < bev_horizon_dist:
+            continue
+
+        # Condition (3): Sufficient distance from previous sample
+        pose_1 = sem_pc_accum.get_pose(present_idx)
+        dist_pose_1_2 = dist(pose_0, pose_1)
+        if dist_pose_1_2 < bev_dist_between_samples:
+            continue
+        pose_0 = pose_1
+
+        print(
+            f'{sample_idx*batch_size} | {bev_count} |',
+            f' back {incr_path_dists[present_idx]:.1f} | front {fut_dist:.1f}')
 
         bevs = sem_pc_accum.generate_bev(present_idx,
                                          bevs_per_sample,
-                                         bev_params,
-                                         aug_params=aug_params,
                                          gen_future=True)
 
         for bev in bevs:

@@ -7,6 +7,7 @@ import numpy as np
 import open3d as o3d
 import PIL.Image as Image
 
+from bev_generator.rgb_bev import RGBBEVGenerator
 from bev_generator.sem_bev import SemBEVGenerator
 from utils.onnx_utils import SemSegONNX
 from utils.transformations import gen_semantic_pc
@@ -35,7 +36,7 @@ class SemanticPointCloudAccumulator:
 
     def __init__(self, horizon_dist: float, calib_params: dict,
                  icp_threshold: float, semseg_onnx_path: str,
-                 semseg_filters: list):
+                 semseg_filters: list, sem_idxs: dict, bev_params: dict):
         '''
         Args:
             calib_params: h_velo_cam: np.array,
@@ -52,6 +53,7 @@ class SemanticPointCloudAccumulator:
         # Semantic segmentation model
         self.semseg_model = SemSegONNX(semseg_onnx_path)
         self.semseg_filters = semseg_filters
+        self.sem_idxs = sem_idxs
 
         # Calibration parameters
         self.H_velo_cam = calib_params['h_velo_cam']
@@ -76,8 +78,24 @@ class SemanticPointCloudAccumulator:
         self.seg_dists = []  # (N-1)
 
         # BEV generator
-        self.sem_bev_generator = SemBEVGenerator(80, 512, ['road'],
-                                                 {'road': 0})
+        # Default initialization is 'None'
+        self.sem_bev_generator = None
+        if bev_params['type'] == 'sem':
+            self.sem_bev_generator = SemBEVGenerator(
+                self.sem_idxs,
+                bev_params['view_size'],
+                bev_params['pixel_size'],
+                bev_params['max_trans_radius'],
+                bev_params['zoom_thresh'],
+            )
+        elif bev_params['type'] == 'rgb':
+            self.sem_bev_generator = RGBBEVGenerator(
+                bev_params['view_size'],
+                bev_params['pixel_size'],
+                0,
+                bev_params['max_trans_radius'],
+                bev_params['zoom_thresh'],
+            )
 
     def integrate(self, observations: list):
         '''
@@ -108,18 +126,42 @@ class SemanticPointCloudAccumulator:
                                      np.array(self.poses[-2]))
                 self.seg_dists.append(seg_dist)
 
-                # Search index where path is longer than the distance horizon
-                path_dist = 0
-                for idx in reversed(range(0, len(self.poses) - 1)):
-                    path_dist += self.seg_dists[idx]
-                    if path_dist > self.horizon_dist:
-                        # Remove elements beyond distance horizon
-                        self.sem_pcs = self.sem_pcs[idx + 1:]
-                        self.poses = self.poses[idx + 1:]
-                        self.seg_dists = self.seg_dists[idx + 1:]
+                path_length = np.sum(self.seg_dists)
 
-            print(f'    #pc {len(self.sem_pcs)} |',
-                  f'path length {np.sum(self.seg_dists):.2f}')
+                if path_length > self.horizon_dist:
+                    # Incremental path distance starting from zero
+                    incr_path_dists = self.get_incremental_path_dists()
+                    # Elements beyond horizon distance become negative
+                    overshoot = path_length - self.horizon_dist
+                    incr_path_dists -= overshoot
+                    # Find first non-negative element index ==> Within horizon
+                    idx = (incr_path_dists > 0.).argmax()
+                    # Remove elements before 'idx' as they are outside horizon
+                    self.sem_pcs = self.sem_pcs[idx:]
+                    self.poses = self.poses[idx:]
+                    self.seg_dists = self.seg_dists[idx:]
+
+                print(f'    #pc {len(self.sem_pcs)} |',
+                      f'path length {path_length:.2f}')
+
+    @staticmethod
+    def comp_incr_path_dist(seg_dists: list):
+        '''
+        Computes a sequence of incremental path distances from a sequence of
+        path segment distances using matrix multiplication.
+
+        Args:
+            seg_dists: List of path segment distances [d1, d2, d3, ... ]
+
+        Returns:
+
+        '''
+        lower_tri_mat = np.tri(len(seg_dists))
+        seg_dists = np.array(seg_dists)
+
+        incr_path_dist = np.matmul(lower_tri_mat, seg_dists)
+
+        return incr_path_dist
 
     def obs2sem_vec_space(self, rgb: Image, pc: np.array) -> tuple:
         '''
@@ -187,6 +229,20 @@ class SemanticPointCloudAccumulator:
 
         return pc_velo_rgbsem, pose
 
+    def get_segment_dists(self) -> list:
+        '''
+        Returns list of path segment distances.
+        '''
+        return self.seg_dists
+
+    def get_incremental_path_dists(self) -> np.array:
+        '''
+        Returns vector of incremental path distances.
+        '''
+        seg_dists_np = np.array(self.seg_dists)
+        incr_path_dists = self.comp_incr_path_dist(seg_dists_np)
+        return incr_path_dists
+
     def get_pose(self, idx: int = None) -> np.array:
         '''
         Returns the pose matrix w. dim (N, 3) or pose vector if given an index.
@@ -199,8 +255,6 @@ class SemanticPointCloudAccumulator:
     def generate_bev(self,
                      present_idx: int,
                      bev_num: int,
-                     bev_params: dict,
-                     aug_params: dict = None,
                      gen_future: bool = False):
         '''
         Generates a single BEV representation.

@@ -14,8 +14,8 @@ class BEVGenerator(ABC):
     def __init__(self,
                  view_size: int,
                  pixel_size: int,
-                 max_trans_radius: float = 10.,
-                 zoom_thresh: float = 0.25):
+                 max_trans_radius: float = 0.,
+                 zoom_thresh: float = 0.):
         '''
         '''
         # View frame size in [m]
@@ -161,6 +161,27 @@ class BEVGenerator(ABC):
         pc_mat = pc_mat[mask]
 
         return pc_mat
+
+    def gen_sem_probmap(self, pc: np.array, sem_cls: str):
+        '''
+        Generates a probabilistic map of a given semantic class modeled as a
+        Dirichlet distribution for ever grid map element.
+
+        Args:
+            pc: dim (N, M) [x, y, ..., sem].
+            sem_cls: String specifying the semantic to extract (e.g. 'road').
+        '''
+        sem_idxs = [self.sem_idxs[sem_cls]]
+        # Partition point cloud into 'semantic' and 'non-semantic' components
+        pc_sem, pc_not_sem = self.partition_semantic_pc(pc, sem_idxs)
+        # Count number of 'semantic' and 'non-semantic' points in each element
+        gridmap_sem = self.gen_gridmap_count_map(pc_sem)
+        gridmap_not_sem = self.gen_gridmap_count_map(pc_not_sem)
+
+        gridmaps = [gridmap_sem, gridmap_not_sem]
+        probmap_sem, _ = self.dirichlet_dist_expectation(gridmaps)
+
+        return probmap_sem
 
     @staticmethod
     def partition_semantic_pc(pc_mat: np.array, sems: list) -> np.array:
