@@ -31,8 +31,9 @@ if __name__ == '__main__':
     # 17 : Motorcycle
     # 18 : Bicycle
     filters = [10, 11, 12, 16, 18]
+    sem_idxs = {'road': 0, 'car': 13, 'truck': 14, 'bus': 15, 'motorcycle': 17}
 
-    horizon_dist = 80
+    accum_horizon_dist = 200  # From front to back
 
     ######################
     #  Calibration info
@@ -59,10 +60,21 @@ if __name__ == '__main__':
     ####################
     icp_threshold = 1e3
 
+    ####################
+    #  BEV parameters
+    ####################
+    bev_params = {'type': None}
+
     # Initialize accumulator
-    sem_pc_accum = SemanticPointCloudAccumulator(horizon_dist, calib_params,
-                                                 icp_threshold,
-                                                 semseg_onnx_path, filters)
+    sem_pc_accum = SemanticPointCloudAccumulator(
+        accum_horizon_dist,
+        calib_params,
+        icp_threshold,
+        semseg_onnx_path,
+        filters,
+        sem_idxs,
+        bev_params,
+    )
 
     #################
     #  Sample data
