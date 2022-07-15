@@ -215,6 +215,7 @@ class SemanticPointCloudAccumulator:
         pc_velo_rgbsem[:, :3] = pc_velo_homo[:, :3]
 
         # Filter out unwanted points according to semantics
+        # TODO do this earlier to reduce computation?
         pc_velo_rgbsem = self.filter_semseg_pc(pc_velo_rgbsem, )
 
         # Compute pose in 'absolute' coordinates
@@ -253,13 +254,15 @@ class SemanticPointCloudAccumulator:
             return np.array(self.poses[idx])
 
     def generate_bev(self,
-                     present_idx: int,
-                     bev_num: int,
+                     present_idx: int = None,
+                     bev_num: int = 1,
                      gen_future: bool = False):
         '''
         Generates a single BEV representation.
 
         Args:
+            present_idx: Concatenate all point clouds up to the index.
+                         NOTE: The default value concatenates all point clouds.
 
         Returns:
             bevs: List of dictionaries containg probabilistic semantic gridmaps
@@ -271,7 +274,10 @@ class SemanticPointCloudAccumulator:
         poses = {}
 
         # 'Present' pose is origo
-        bev_frame_coords = np.array(self.poses[present_idx])
+        if present_idx is None:
+            bev_frame_coords = np.array(self.poses[-1])
+        else:
+            bev_frame_coords = np.array(self.poses[present_idx])
 
         pc_present = np.concatenate(self.sem_pcs[:present_idx])
         poses_present = np.concatenate([self.poses[:present_idx]])
@@ -290,16 +296,24 @@ class SemanticPointCloudAccumulator:
             # Transform 'absolute' --> 'bev' coordinates
             pc_future[:, :3] = pc_future[:, :3] - bev_frame_coords
             poses_future = poses_future - bev_frame_coords
+        else:
+            pc_future = None
+            poses_future = None
+        pcs.update({'pc_future': pc_future})
+        poses.update({'poses_future': poses_future})
 
-            pcs.update({'pc_future': pc_future})
-            poses.update({'poses_future': poses_future})
-
-        # Generate BEVs in parallel
-        # Package inputs as a tuple for multiprocessing
-        bev_gen_inputs = [(pcs, poses)] * bev_num
-        pool = Pool(processes=bev_num)
-        bevs = pool.map(self.sem_bev_generator.generate_multiproc,
-                        bev_gen_inputs)
+        if bev_num == 1:
+            bev_gen_inputs = (pcs, poses)
+            bevs = self.sem_bev_generator.generate_multiproc(bev_gen_inputs)
+            # Mimic multiprocessing list output
+            bevs = [bevs]
+        else:
+            # Generate BEVs in parallel
+            # Package inputs as a tuple for multiprocessing
+            bev_gen_inputs = [(pcs, poses)] * bev_num
+            pool = Pool(processes=bev_num)
+            bevs = pool.map(self.sem_bev_generator.generate_multiproc,
+                            bev_gen_inputs)
 
         return bevs
 
