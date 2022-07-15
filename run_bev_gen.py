@@ -22,7 +22,7 @@ def dist(pose_0: np.array, pose_1: np.array):
 if __name__ == '__main__':
 
     # Path to dataset root directory
-    kitti360_path = '/home/robin/datasets/KITTI-360'
+    kitti360_path = '/home/user/Desktop/python_ws/pc-accumulation-lib/data/KITTI-360_mini'
     # Path to ONNX semantic segmentation model
     semseg_onnx_path = 'semseg_rn50_160k_cm.onnx'
     # Semantic exclusion filters
@@ -79,8 +79,8 @@ if __name__ == '__main__':
     #  BEV parameters
     ####################
     bevs_per_sample = 1
-    bev_horizon_dist = 60
-    bev_dist_between_samples = 5.
+    bev_horizon_dist = 10
+    bev_dist_between_samples = 1.
     voxel_size = 0.1
 
     bev_params = {
@@ -121,9 +121,9 @@ if __name__ == '__main__':
         # '2013_05_28_drive_0009_sync',
         # '2013_05_28_drive_0010_sync',
     ]
-    start_idxs = [130]
+    start_idxs = [200]
     # [130, 4613, 40, 90, 50, 120, 0, 90, 0]
-    end_idxs = [11400]
+    end_idxs = [250]
     # [11400, 1899, 770, 11530, 6660, 9698, 2960, 13945, 3540]
 
     dataloader = Kitti360Dataloader(kitti360_path, batch_size, sequences,
@@ -187,6 +187,7 @@ if __name__ == '__main__':
 
             # Visualize BEV samples
             if viz_to_disk:
+                print('saving .....')
                 viz_file = os.path.join(output_path, f'viz_{bev_idx}.png')
                 sem_pc_accum.viz_bev(bev, viz_file)
 

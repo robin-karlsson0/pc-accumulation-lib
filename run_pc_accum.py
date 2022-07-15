@@ -7,7 +7,7 @@ from sem_pc_accum import SemanticPointCloudAccumulator
 if __name__ == '__main__':
 
     # Path to dataset root directory
-    kitti360_path = '/home/robin/datasets/KITTI-360'
+    kitti360_path = './data/kitti-360/KITTI-360_mini'
     # Path to ONNX semantic segmentation model
     semseg_onnx_path = 'semseg_rn50_160k_cm.onnx'
     # Semantic exclusion filters
@@ -75,24 +75,24 @@ if __name__ == '__main__':
         sem_idxs,
         bev_params,
     )
-
+    print('sem_pc_accum is created .........')
     #################
     #  Sample data
     #################
-    kitti360_path = '/home/robin/datasets/KITTI-360'
-    batch_size = 50
+    # kitti360_path = '/home/robin/datasets/KITTI-360'
+    batch_size = 20
     sequences = ['2013_05_28_drive_0000_sync']
-    start_idxs = [200]
-    end_idxs = [250]
+    start_idxs = [3]
+    end_idxs = [50]
 
     dataloader = Kitti360Dataloader(kitti360_path, batch_size, sequences,
                                     start_idxs, end_idxs)
-
+    print('dataloader is created .........')
     ############################
     #  Integrate observations
     ############################
     for observations in dataloader:
-
+        print('observation is read ....')
         sem_pc_accum.integrate(observations)
-
+        print('here .........')
         sem_pc_accum.viz_sem_vec_space()
