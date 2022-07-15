@@ -304,6 +304,8 @@ class SemanticPointCloudAccumulator:
 
         if bev_num == 1:
             bevs = self.sem_bev_generator.generate(pcs, poses)
+            # Mimic multiprocessing list
+            bevs = [bevs]
         else:
             # Generate BEVs in parallel
             # Package inputs as a tuple for multiprocessing

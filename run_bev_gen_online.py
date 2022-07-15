@@ -127,6 +127,7 @@ if __name__ == '__main__':
         sem_pc_accum.integrate(observations)
 
         bev = sem_pc_accum.generate_bev()
+        bev = bev[0]
 
         # Store BEV samples
         if bev_idx > 1000:
