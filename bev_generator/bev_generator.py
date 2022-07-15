@@ -26,6 +26,10 @@ class BEVGenerator(ABC):
         # Random augmentation parameters
         self.max_trans_radius = max_trans_radius
         self.zoom_thresh = zoom_thresh
+        if self.max_trans_radius > 0. or self.zoom_thresh > 0.:
+            self.do_aug = True
+        else:
+            self.do_aug = False
 
     @abstractmethod
     def generate_bev(self,
@@ -116,7 +120,10 @@ class BEVGenerator(ABC):
         '''
         pcs, poses = bev_gen_inputs
 
-        bev = self.generate(pcs, poses)
+        if self.do_aug:
+            bev = self.generate_rand_aug(pcs, poses)
+        else:
+            bev = self.generate(pcs, poses)
 
         return bev
 
@@ -235,11 +242,12 @@ class BEVGenerator(ABC):
                       semantic.
 
         Returns:
-            post_gridmaps: List of np.array() with posterior probability gridmaps.
+            post_gridmaps: List of np.array() with posterior probability
+                           gridmaps.
         '''
         n_gridmaps = len(gridmaps)
         gridmaps = np.stack(gridmaps)
-        gridmaps *= obs_weight  # Consider previous downsampling of observations
+        gridmaps *= obs_weight  # Consider prev. downsampling of observations
 
         # Uniform prior
         gridmaps += 1.
