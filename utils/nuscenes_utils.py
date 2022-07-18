@@ -6,11 +6,29 @@ from abc import ABC
 
 from nuscenes.nuscenes import NuScenes
 from nuscenes.utils.geometry_utils import transform_matrix, view_points
+from nuscenes.utils.data_classes import LidarPointCloud
 
 
 def print_dict(d: dict):
     for k, v in d.items():
         print(f'{k}: {v}')
+
+
+def homo_transform(tf, points):
+    """
+    Apply homogeneous transformation to a set of points
+    Args:
+        tf (np.ndarray): 4x4
+        points (np.ndarray): (N, 3) - X, Y, Z
+
+    Returns:
+        transformed_points (np.ndarray): (N, 3)
+    """
+    assert tf.shape == (4, 4), f"{tf.shape} is not (4, 4)"
+    assert points.shape == (points.shape[0], 3), f"{points.shape} is not (N, 3)"
+    _pts = np.concatenate([points, np.ones((points.shape[0], 1))], axis=1)
+    _pts = tf @ _pts.T
+    return _pts[:3, :].T
 
 
 class NuScenesSensor(ABC):
@@ -113,3 +131,36 @@ class NuScenesCamera(NuScenesSensor):
         elif method == 'nearest':
             uv_ = np.round(pts_uv).astype(int)
             return cam_feat[:, uv_[:, 1], uv_[:, 0]].transpose((1, 0))  # (N, C)
+
+
+class NuScenesLidar(NuScenesSensor):
+    def __init__(self, nusc, lidar_record):
+        """
+        Args:
+            nusc (NuScenes):
+            lidar_record (dict):
+        """
+        super().__init__(nusc, lidar_record)
+
+    @staticmethod
+    def get_pointcloud(nusc, sample_record, num_sweeps=None):
+        """
+
+        Args:
+            nusc (NuScenes):
+            sample_record (dict): record of the entire keyframe
+            num_sweeps (int): < 10
+        Returns:
+            pc (np.ndarray): (N, 3 (+1)) - X, Y, Z in LiDAR frame (and time lag w.r.t timestamp of keyframe)
+        """
+        if num_sweeps is not None:
+            assert sample_record is not None
+            assert num_sweeps <= 10
+            pc, times = LidarPointCloud.from_file_multisweep(nusc, sample_record, 'LIDAR_TOP', 'LIDAR_TOP',
+                                                             nsweeps=num_sweeps)
+            out = np.vstack([pc.points[:3, :], times])  # (4, N)
+            return out.T  # (N, 4)
+        else:
+            lidar_record = nusc.get('sample_data', sample_record['data']['LIDAR_TOP'])
+            pc = LidarPointCloud.from_file(osp.join(nusc.dataroot, lidar_record['filename']))  # pc is in LIDAR frame
+            return pc.points[:3, :].T  # (N, 3) - X, Y, Z in LIDAR_TOP frame
