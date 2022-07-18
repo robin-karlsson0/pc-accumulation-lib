@@ -3,14 +3,17 @@ from pyquaternion import Quaternion
 from nuscenes.utils.geometry_utils import transform_matrix
 from copy import deepcopy
 import numpy as np
+from PIL import Image
+import os.path as osp
 
 
-def show_pointcloud(xyz, boxes=None):
+def show_pointcloud(xyz, boxes=None, pc_colors=None):
     """
 
     Args:
         xyz (np.ndarray): (N, 3)
         boxes (list): list of boxes, each box is denoted by coordinates of its 8 vertices - np.ndarray (8, 3)
+        pc_colors (np.ndarray): (N, 3) - r, g, b
     """
     def create_cube(vers):
         # vers: (8, 3)
@@ -30,6 +33,8 @@ def show_pointcloud(xyz, boxes=None):
 
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(xyz)
+    if pc_colors is not None:
+        pcd.colors = o3d.utility.Vector3dVector(pc_colors)
     if boxes is not None:
         o3d_cubes = [create_cube(box) for box in boxes]
         o3d.visualization.draw_geometries([pcd, *o3d_cubes])
@@ -39,7 +44,7 @@ def show_pointcloud(xyz, boxes=None):
 
 class NuScenesAnnotation:
     def __init__(self, translation, size, rotation, category_name, **kwargs):
-        self.pose = transform_matrix(translation, Quaternion(rotation))  # @ init, == global_from_box
+        self.pose = transform_matrix(translation, Quaternion(rotation))  # @ init, == global_from_box | 4x4
         self.__global_pose = deepcopy(self.pose)
         self.category_name = category_name
         self.wlh = size  # length == x-axis
@@ -65,6 +70,18 @@ class NuScenesAnnotation:
         vers = vers[:3].T  # (8, 3)
         return vers
 
+    def find_points_inside(self, pc):
+        """
+        Find points inside this box
+        Args:
+            pc (np.ndarray): (N, 3) - X, Y, Z, in the SAME reference frame as the box
 
-
-
+        Returns:
+            mask_inside (np.ndarray): (N,) - bool, True if points is inside
+        """
+        box_from_ref = np.linalg.inv(self.pose)
+        pc_in_box = box_from_ref @ np.concatenate([pc, np.ones((pc.shape[0], 1))], axis=1).T
+        w, l, h = self.wlh
+        pc_in_box = pc_in_box[:3, :].T / np.array([[l, w, h]], dtype=float)  # (N, 3)
+        mask_inside = np.all(np.abs(pc_in_box) < (0.5 + 1e-3), axis=1)
+        return mask_inside
