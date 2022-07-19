@@ -3,7 +3,6 @@ from PIL import Image
 import os.path as osp
 from pyquaternion import Quaternion
 from abc import ABC
-from typing import Union
 
 from nuscenes.nuscenes import NuScenes
 from nuscenes.utils.geometry_utils import transform_matrix, view_points
@@ -95,44 +94,6 @@ class NuScenesCamera(NuScenesSensor):
         mask_in_img = np.all(mask_in_img, axis=1) & mask_valid
         return out, mask_in_img
 
-    def get_pts_feat(self, pts_uv, cam_feat=None, method='bilinear'):
-        """
-        Get camera feat for 3d points using their projectd coordinate
-        Args:
-            pts_uv (np.ndarray): (N, 2) - float
-            cam_feat (np.ndarray): feat map where pts get feature from, If not provided, takes camera image as value
-            method (str): support bilinear & nearest neighbor
-
-        Returns:
-            pc_feat (np.ndarray): (N, C), C is the number of channels of feat map
-        """
-        assert method in ('bilinear', 'nearest'), f"{method} is not supported"
-        mask_inside = (pts_uv > 1) & (pts_uv < self.img_wh - 1)
-        assert np.all(mask_inside), f"pts_uv must be all inside image"
-
-        if cam_feat is None:
-            cam_feat = np.array(self.img)  # (H, W, 3)
-            cam_feat = cam_feat.transpose((2, 0, 1))  # (3, H, W)
-
-        if method == 'bilinear':
-            u, v = pts_uv[:, 0], pts_uv[:, 1]
-            u_floor, u_ceil = np.floor(u), np.ceil(u)
-            v_floor, v_ceil = np.floor(v), np.ceil(v)
-            total = (u_ceil - u_floor) * (v_ceil - v_floor)
-            w_ff = (u_ceil - u) * (v_ceil - v) / total  # area (uv, uv_cc)
-            w_cc = (u - u_floor) * (v - v_floor) / total  # area (uv, uv_ff)
-            w_fc = (u - u_floor) * (v_ceil - v) / total  # area (uv, uv_fc)
-            w_cf = 1. - (w_ff + w_cc + w_fc)
-            u_floor, v_floor = u_floor.astype(int), v_floor.astype(int)
-            u_ceil, v_ceil = u_ceil.astype(int), v_ceil.astype(int)
-            pts_feat = w_ff * cam_feat[:, v_floor, u_floor] + w_cc * cam_feat[:, v_ceil, u_ceil] + \
-                       w_cf * cam_feat[:, v_ceil, u_floor] + w_fc * cam_feat[:, v_floor, u_ceil]  # (C, N)
-            return pts_feat.transpose((1, 0))  # (N, C)
-
-        elif method == 'nearest':
-            uv_ = np.round(pts_uv).astype(int)
-            return cam_feat[:, uv_[:, 1], uv_[:, 0]].transpose((1, 0))  # (N, C)
-
 
 class NuScenesLidar(NuScenesSensor):
     def __init__(self, nusc, lidar_record):
@@ -180,7 +141,6 @@ def pts_feat_from_img(pts_uv, img, method='bilinear'):
     """
     assert isinstance(img, np.ndarray), f"{type(img)} is not supported"
     assert method in ('bilinear', 'nearest'), f"{method} is not supported"
-    print(f'img.shape: {img.shape}')
     img_wh = np.array([img.shape[1], img.shape[0]], dtype=float)
     mask_inside = (pts_uv > 1) & (pts_uv < img_wh - 1)
     assert np.all(mask_inside), f"pts_uv must be all inside image"

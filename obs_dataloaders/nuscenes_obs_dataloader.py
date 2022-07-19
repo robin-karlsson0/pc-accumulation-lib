@@ -20,6 +20,7 @@ class NuScenesDataloader(ObservationDataloader):
         self.num_sweeps = num_sweeps
         self.cam_channels = ['CAM_FRONT', 'CAM_FRONT_LEFT', 'CAM_FRONT_RIGHT', 'CAM_BACK', 'CAM_BACK_LEFT',
                              'CAM_BACK_RIGHT']
+        # self.cam_channels = ['CAM_FRONT']
         if scene_ids is None:
             scene_ids = range(self.nusc.scene)
 
@@ -70,7 +71,7 @@ class NuScenesDataloader(ObservationDataloader):
         pc_in_glob = homo_transform(lidar_sensor.glob_from_ego, pc_in_ego)  # (N, 3)
         cameras = [NuScenesCamera(self.nusc, self.nusc.get('sample_data', sample['data'][channel])) for channel in
                    self.cam_channels]
-        obs['images'] = [np.array(cam.img) for cam in cameras]
+        obs['images'] = [cam.img for cam in cameras]
 
         pc_uv, pc_cam_idx = np.zeros((pc.shape[0], 2), dtype=float), -np.ones(pc.shape[0], dtype=int)
         for j, cam in enumerate(cameras):
