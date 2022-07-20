@@ -48,7 +48,7 @@ if __name__ == '__main__':
     filters = [10, 11, 12, 16, 18]
     sem_idxs = {'road': 0, 'car': 13, 'truck': 14, 'bus': 15, 'motorcycle': 17}
 
-    accum_horizon_dist = 200  # From front to back
+    accum_horizon_dist = 300  # From front to back
 
     ######################
     #  Calibration info
@@ -79,8 +79,8 @@ if __name__ == '__main__':
     #  BEV parameters
     ####################
     bevs_per_sample = 1
-    bev_horizon_dist = 60
-    bev_dist_between_samples = 5.
+    bev_horizon_dist = 120
+    bev_dist_between_samples = 10.
     voxel_size = 0.1
 
     bev_params = {
@@ -88,7 +88,7 @@ if __name__ == '__main__':
         'view_size': 80,
         'pixel_size': 512,
         'max_trans_radius': 10,
-        'zoom_thresh': 0.25,
+        'zoom_thresh': 0.10,
     }
 
     savedir = 'bevs'
@@ -121,10 +121,10 @@ if __name__ == '__main__':
         # '2013_05_28_drive_0009_sync',
         # '2013_05_28_drive_0010_sync',
     ]
-    start_idxs = [130]
+    start_idxs = [130 + 1000]
     # [130, 4613, 40, 90, 50, 120, 0, 90, 0]
     end_idxs = [11400]
-    # [11400, 1899, 770, 11530, 6660, 9698, 2960, 13945, 3540]
+    # [11400, 18997, 770, 11530, 6660, 9698, 2960, 13945, 3540]
 
     dataloader = Kitti360Dataloader(kitti360_path, batch_size, sequences,
                                     start_idxs, end_idxs)

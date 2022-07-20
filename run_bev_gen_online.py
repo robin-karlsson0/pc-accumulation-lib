@@ -111,7 +111,7 @@ if __name__ == '__main__':
     start_idxs = [130]
     # [130, 4613, 40, 90, 50, 120, 0, 90, 0]
     end_idxs = [11400]
-    # [11400, 1899, 770, 11530, 6660, 9698, 2960, 13945, 3540]
+    # [11400, 18997, 770, 11530, 6660, 9698, 2960, 13945, 3540]
 
     dataloader = Kitti360Dataloader(kitti360_path, batch_size, sequences,
                                     start_idxs, end_idxs)
