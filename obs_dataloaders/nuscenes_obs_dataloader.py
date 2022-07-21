@@ -49,11 +49,12 @@ class NuScenesDataloader(ObservationDataloader):
                 pc (np.ndarray): (N, 3+2[+1]) - X, Y, Z in EGO VEHICLE, pixel_u, pixel_v, [time-lag w.r.t keyframe]
                 pc_cam_idx (np.ndarray): (N,) - index of camera where each point projected onto
                 ego_at_lidar_ts (np.ndarray): (4, 4) ego vehicle pose w.r.t global frame @ timestamp of lidar
-                cam_channels (list[str]):
+                meta (dict)
         """
         obs = dict()
-        obs['cam_channels'] = self.cam_channels
         sample = self.nusc.get('sample', self.sample_tokens[idx])
+        obs['meta'] = {'sample_token': self.sample_tokens[idx], 'scene_token': sample['scene_token'],
+                       'cam_channels': self.cam_channels}
 
         # ##############################################
         # get pointcloud & map it to EGO VEHICLE frame

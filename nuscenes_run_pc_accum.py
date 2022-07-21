@@ -3,6 +3,7 @@ from nuscenes_sem_pc_accum import NuScenesSemanticPointCloudAccumulator
 from datasets.nuscenes_utils import pts_feat_from_img
 import numpy as np
 from sandbox.misc import show_pointcloud
+import os
 
 
 if __name__ == '__main__':
@@ -32,25 +33,30 @@ if __name__ == '__main__':
     sem_idxs = {'road': 0, 'car': 13, 'truck': 14, 'bus': 15, 'motorcycle': 17}
 
     accum_horizon_dist = 200  # From front to back
-    calib_params = {}
-    calib_params['h_velo_cam'] = None
-    calib_params['p_cam_frame'] = None
-    calib_params['p_velo_frame'] = None
-    calib_params['c_x'] = None
-    calib_params['c_y'] = None
-    calib_params['f_x'] = None
-    calib_params['f_y'] = None
-    icp_threshold = 1e3
-    bev_params = {'type': None}
+
+    ####################
+    #  BEV parameters
+    ####################
+    bevs_per_sample = 1
+    bev_horizon_dist = 60
+    bev_dist_between_samples = 5.
+    voxel_size = 0.1
+    bev_params = {
+        'type': 'sem',  # Options: ['sem', 'rgb']
+        'view_size': 80,
+        'pixel_size': 512,
+        'max_trans_radius': 0.,
+        'zoom_thresh': 0.,
+    }
+    savedir = 'output/bev_online'
+    subdir_size = 1000
+    viz_to_disk = True  # For debugging purposes
 
     sem_pc_accum = NuScenesSemanticPointCloudAccumulator(
-        accum_horizon_dist,
-        calib_params,
-        icp_threshold,
-        semseg_onnx_path,
-        filters,
-        sem_idxs,
-        bev_params,
+        horizon_dist=accum_horizon_dist,
+        semseg_filters=filters,
+        sem_idxs=sem_idxs,
+        bev_params=bev_params,
     )
 
     # ###################
@@ -67,6 +73,16 @@ if __name__ == '__main__':
 
     for obss in dataloader:
         sem_pc_accum.integrate(obss)  # heavy-lifting happens here
+        bev = sem_pc_accum.generate_bev()
+        bev = bev[0]
+
+        # save bev img
+        output_dir = os.path.join(savedir, 'scene', obss[-1]['meta']['scene_token'])
+        if not os.path.isdir(output_dir):
+            os.makedirs(output_dir)
+        viz_file = os.path.join(output_dir, f"cnt_{counter}_bev_online_batch_size1_{obss[-1]['meta']['sample_token']}.png")
+        sem_pc_accum.viz_bev(bev, viz_file)
+
         counter += 1
         if counter > 10:
             sem_pc_accum.viz_sem_vec_space()

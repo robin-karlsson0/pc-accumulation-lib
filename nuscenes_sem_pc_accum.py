@@ -1,16 +1,85 @@
 import numpy as np
-
+import os.path as osp
+import torch
+from mmseg.apis import inference_segmentor, init_segmentor
 from sem_pc_accum import SemanticPointCloudAccumulator
 from datasets.nuscenes_utils import pts_feat_from_img, homo_transform
+from utils.onnx_utils import SemSegONNX
+from bev_generator.sem_bev import SemBEVGenerator
+from bev_generator.rgb_bev import RGBBEVGenerator
 
 
 class NuScenesSemanticPointCloudAccumulator(SemanticPointCloudAccumulator):
-    def __init__(self, horizon_dist: float, calib_params: dict,
-                 icp_threshold: float, semseg_onnx_path: str,
-                 semseg_filters: list, sem_idxs: dict, bev_params: dict):
-        super().__init__(horizon_dist, calib_params, icp_threshold, semseg_onnx_path, semseg_filters, sem_idxs,
-                         bev_params)
-        self.world_from_glob = None  # 4x4 tf that maps pts in GLOBAL frame to WORLD frame == the 1st EGO frame
+    def __init__(self,
+                 horizon_dist,
+                 calib_params=None,
+                 icp_threshold=None,
+                 semseg_onnx_path=None,
+                 semseg_filters=None,
+                 sem_idxs=None,
+                 bev_params=None):
+        """
+        Args:
+            horizon_dist (float): maximum distance that ego vehicle traveled within an accumulated pointcloud. If
+                ego vehicle travels more than this, past pointclouds will be discarded
+            calib_params (dict): not used in NuScenes
+            icp_threshold (float): not used if using ground truth ego pose
+            semseg_onnx_path (str): path to onnx file defining semseg model
+            semseg_filters (list[int]): classes that are removed
+            sem_idxs (dict): mapping semseg class to str
+            bev_params (dict):
+        """
+        # Semseg model
+        if semseg_onnx_path is not None:
+            self.semseg_model = SemSegONNX(semseg_onnx_path)
+            self.semseg_by_onnx = True
+        else:
+            mmseg_root = '/home/user/Desktop/python_ws/mmsegmentation'
+            config_file = osp.join(mmseg_root, 'configs', 'deeplabv3', 'deeplabv3_r18-d8_512x1024_80k_cityscapes.py')
+            ckpt_file = osp.join(mmseg_root, 'checkpoints',
+                                 'deeplabv3_r18-d8_512x1024_80k_cityscapes_20201225_021506-23dffbe2.pth')
+            self.semseg_model = init_segmentor(config_file, ckpt_file, device='cuda:0')
+            self.semseg_by_onnx = False
+        self.semseg_filters = semseg_filters
+        self.sem_idxs = sem_idxs
+
+        # Calibration param
+        if calib_params is not None:
+            raise ValueError("calib_params is not supported for NuScenes")
+        self.icp_threshold = icp_threshold
+
+        # Init pose and transformation matrix
+        if icp_threshold is not None:
+            self.T_prev_origin = np.eye(4)
+            self.icp_trans_init = np.eye(4)
+            self.pcd_prev = None  # pointcloud in the last observation
+        else:
+            self.world_from_glob = None  # 4x4 tf that maps pts in GLOBAL frame to WORLD frame == the 1st EGO frame
+
+        self.horizon_dist = horizon_dist
+
+        self.sem_pcs = []  # (N)
+        self.poses = []  # (N)
+        self.seg_dists = []  # (N-1)
+        # BEV generator
+        # Default initialization is 'None'
+        self.sem_bev_generator = None
+        if bev_params['type'] == 'sem':
+            self.sem_bev_generator = SemBEVGenerator(
+                self.sem_idxs,
+                bev_params['view_size'],
+                bev_params['pixel_size'],
+                bev_params['max_trans_radius'],
+                bev_params['zoom_thresh'],
+            )
+        elif bev_params['type'] == 'rgb':
+            self.sem_bev_generator = RGBBEVGenerator(
+                bev_params['view_size'],
+                bev_params['pixel_size'],
+                0,
+                bev_params['max_trans_radius'],
+                bev_params['zoom_thresh'],
+            )
 
     def integrate(self, observations: list):
         """
@@ -93,20 +162,27 @@ class NuScenesSemanticPointCloudAccumulator(SemanticPointCloudAccumulator):
         # ##############################################
         pc = obs['pc']  # (N, 3+2[+1]) X, Y, Z in EGO VEHICLE, pixel_u, pixel_v, [time-lag w.r.t keyframe]
         pc_cam_idx = obs['pc_cam_idx']
-        pc_rgb_sem = -np.ones((pc.shape[0], 3), dtype=float)  # r, g, b, semseg
+        pc_rgb_sem = -np.ones((pc.shape[0], 4), dtype=float)  # r, g, b, semseg
         for cam_idx, img in enumerate(obs['images']):
-            # semseg = self.semseg_model.pred(img)[0, 0]
+            if self.semseg_by_onnx:
+                semseg = self.semseg_model.pred(img)[0, 0]
+                img = np.array(img)
+            else:
+                img = np.array(img)
+                semseg = inference_segmentor(self.semseg_model, img)[0]
             mask_in_img = pc_cam_idx == cam_idx
             pc_rgb_sem[mask_in_img] = pts_feat_from_img(
-                pc[mask_in_img, 3: 5], np.array(img), 'nearest'
+                pc[mask_in_img, 3: 5],
+                np.concatenate([img, np.expand_dims(semseg, -1)], axis=2), 'nearest'
             )
 
         # ##################################
         # Filter pointcloud based on semseg
         # ##################################
         mask_invalid_pts = np.any(pc_rgb_sem < 0, axis=1)  # pts that are not on any images
-        # for invalid_cls in self.semseg_filters:
-        #     mask_invalid_pts = mask_invalid_pts | (pc_rgb_sem[:, -1] == invalid_cls)
+        for invalid_cls in self.semseg_filters:
+            mask_invalid_pts = mask_invalid_pts | (pc_rgb_sem[:, -1] == invalid_cls)
+
         mask_valid = np.logical_not(mask_invalid_pts)
         pc, pc_rgb_sem = pc[mask_valid], pc_rgb_sem[mask_valid]
 
