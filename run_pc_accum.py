@@ -75,7 +75,7 @@ if __name__ == '__main__':
         sem_idxs,
         bev_params,
     )
-    print('sem_pc_accum is created .........')
+
     #################
     #  Sample data
     #################
@@ -86,12 +86,9 @@ if __name__ == '__main__':
 
     dataloader = Kitti360Dataloader(kitti360_path, batch_size, sequences,
                                     start_idxs, end_idxs)
-    print('dataloader is created .........')
     ############################
     #  Integrate observations
     ############################
     for observations in dataloader:
-        print('observation is read ....')
-        sem_pc_accum.integrate(observations)
-        print('here .........')
+        sem_pc_accum.integrate(observations)  # heavy-lifting happens here
         sem_pc_accum.viz_sem_vec_space()

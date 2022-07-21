@@ -3,13 +3,15 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from misc import show_pointcloud, NuScenesAnnotation
-from utils.nuscenes_utils import NuScenesCamera, NuScenesLidar, homo_transform
+from datasets.nuscenes_utils import NuScenesCamera, NuScenesLidar, homo_transform
 
 
 nusc = NuScenes(dataroot='/home/user/dataset/nuscenes/', version='v1.0-mini', verbose=False)
 scene = nusc.scene[0]
 # nusc.render_scene(scene['token'])
 sample = nusc.sample[10]
+print(sample.keys())
+raise ValueError
 
 # ##########################################################
 # Get point cloud in LiDAR frame & map it ego vehicle frame
