@@ -62,8 +62,7 @@ class SemanticPointCloudAccumulator:
 
         self.icp_threshold = icp_threshold
 
-        self.icp_trans_init = np.asarray([[1, 0, 0, 0], [0, 1, 0, 0],
-                                          [0, 0, 1, 0], [0, 0, 0, 1]])
+        self.icp_trans_init = np.eye(4)
 
         # Initial pose and transformation matrix
         self.T_prev_origin = np.eye(4)
@@ -173,8 +172,8 @@ class SemanticPointCloudAccumulator:
 
         Args:
             rgb: RGB image.
-            pc: Semantic point cloud as row vector matrix w. dim (N, 8)
-                [x, y, z, intensity, r, g, b, sem_idx]
+            pc: Point cloud as row vector matrix w. dim (N, 4)
+                [x, y, z, intensity]
 
         Returns:
             pc_velo_rgbsem (np.array): Semantic point cloud as row vector
