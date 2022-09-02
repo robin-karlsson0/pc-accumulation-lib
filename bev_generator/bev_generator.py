@@ -62,6 +62,13 @@ class BEVGenerator(ABC):
 
         aug_view_size = zoom_scalar * self.view_size
 
+        rot_ang = 0.5 * np.pi
+        if len(poses_present) > 1:
+            dx = poses_present[-1][0] - poses_present[-2][0]
+            dy = poses_present[-1][1] - poses_present[-2][1]
+            rot_ang += np.arctan2(dy, dx)
+        rot_ang = np.pi - rot_ang
+
         pc_present, poses_present = self.preprocess_pc_and_poses(
             pc_present, poses_present, rot_ang, trans_dx, trans_dy,
             aug_view_size)

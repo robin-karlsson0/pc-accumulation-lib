@@ -292,14 +292,24 @@ class SemanticPointCloudAccumulator:
             pc_future = np.concatenate(self.sem_pcs[present_idx:])
             poses_future = np.concatenate([self.poses[present_idx:]])
 
+            pc_full = np.concatenate(self.sem_pcs)
+            poses_full = np.concatenate([self.poses])
+
             # Transform 'absolute' --> 'bev' coordinates
             pc_future[:, :3] = pc_future[:, :3] - bev_frame_coords
             poses_future = poses_future - bev_frame_coords
+
+            pc_full[:, :3] = pc_full[:, :3] - bev_frame_coords
+            poses_full = poses_full - bev_frame_coords
         else:
             pc_future = None
             poses_future = None
+            pc_full = None
+            poses_full = None
         pcs.update({'pc_future': pc_future})
         poses.update({'poses_future': poses_future})
+        pcs.update({'pc_full': pc_full})
+        poses.update({'poses_full': poses_full})
 
         if bev_num == 1:
             bev_gen_inputs = (pcs, poses)
