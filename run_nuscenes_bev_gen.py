@@ -104,7 +104,7 @@ if __name__ == '__main__':
         'zoom_thresh': args.bev_zoom_thresh,  # 0.10,
     }
 
-    savedir = 'bevs'
+    savedir = 'bev_nuscenes_64px'
     subdir_size = 1000
     viz_to_disk = True  # For debugging purposes
 
@@ -115,7 +115,7 @@ if __name__ == '__main__':
     subdir_idx = 0
     bev_count = 0
 
-    for scene_id in range(2):
+    for scene_id in range(10):
 
         print(f'Processing scene id {scene_id}')
 

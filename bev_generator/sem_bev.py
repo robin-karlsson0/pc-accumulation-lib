@@ -29,8 +29,10 @@ class SemBEVGenerator(BEVGenerator):
     def generate_bev(self,
                      pc_present: np.array,
                      pc_future: np.array,
+                     pc_full: np.array,
                      poses_present: np.array,
                      poses_future: np.array,
+                     poses_full: np.array,
                      do_warping: bool = False):
         '''
         Args:
@@ -58,6 +60,11 @@ class SemBEVGenerator(BEVGenerator):
             probmap_future_road = self.gen_sem_probmap(pc_future_static,
                                                        'road')
 
+            pc_full_dynamic, pc_full_static = self.partition_semantic_pc(
+                pc_full, dynamic_filter)
+
+            probmap_full_road = self.gen_sem_probmap(pc_full_static, 'road')
+
         # Warp all probability maps and poses
         if do_warping:
             i_mid = int(self.pixel_size / 2)
@@ -71,6 +78,7 @@ class SemBEVGenerator(BEVGenerator):
             probmaps = [probmap_present_road]
             if pc_future is not None:
                 probmaps.append(probmap_future_road)
+                probmaps.append(probmap_full_road)
 
             probmaps = np.stack(probmaps)
             probmaps = self.warp_dense_probmaps(probmaps, a_1, a_2, b_1, b_2)
@@ -81,9 +89,13 @@ class SemBEVGenerator(BEVGenerator):
 
             if pc_future is not None:
                 probmap_future_road = probmaps[1]
-                poses_future = self.warp_sparse_points(poses_future, a_1, a_2,
+                poses_future = self.warp_sparse_points(poses_full, a_1, a_2,
                                                        b_1, b_2, i_mid, j_mid,
                                                        i_warp, j_warp)
+                probmap_full_road = probmaps[1]
+                poses_full = self.warp_sparse_points(poses_full, a_1, a_2, b_1,
+                                                     b_2, i_mid, j_mid, i_warp,
+                                                     j_warp)
 
         # Reduce storage size
         probmap_present_road = probmap_present_road.astype(np.float16)
@@ -97,6 +109,8 @@ class SemBEVGenerator(BEVGenerator):
             bev.update({
                 'road_future': probmap_future_road,
                 'poses_future': poses_future,
+                'road_full': probmap_full_road,
+                'poses_full': poses_full,
             })
 
         return bev
@@ -112,16 +126,22 @@ class SemBEVGenerator(BEVGenerator):
         if 'road_future' in bev.keys():
             future_road = bev['road_future']
             poses_future = bev['poses_future']
+            full_road = bev['road_full']
+            poses_full = bev['poses_full']
 
             _ = plt.figure(figsize=(12, 6))
 
-            plt.subplot(1, 2, 1)
+            plt.subplot(1, 3, 1)
             plt.imshow(present_road, vmin=0, vmax=1)
             plt.plot(poses_present[:, 0], H - poses_present[:, 1], 'k-')
 
-            plt.subplot(1, 2, 2)
+            plt.subplot(1, 3, 2)
             plt.imshow(future_road, vmin=0, vmax=1)
             plt.plot(poses_future[:, 0], H - poses_future[:, 1], 'r-')
+
+            plt.subplot(1, 3, 3)
+            plt.imshow(full_road, vmin=0, vmax=1)
+            plt.plot(poses_full[:, 0], H - poses_full[:, 1], 'r-')
 
         else:
 

@@ -57,8 +57,8 @@ class BEVGenerator(ABC):
         '''
         '''
         # Extract semantic point cloud and pose information
-        pc_present, pc_future = self.extract_pc_dict(pcs)
-        poses_present, poses_future = self.extract_pose_dict(poses)
+        pc_present, pc_future, pc_full = self.extract_pc_dict(pcs)
+        poses_present, poses_future, poses_full = self.extract_pose_dict(poses)
 
         aug_view_size = zoom_scalar * self.view_size
 
@@ -71,8 +71,12 @@ class BEVGenerator(ABC):
                 pc_future, poses_future, rot_ang, trans_dx, trans_dy,
                 aug_view_size)
 
-        bev = self.generate_bev(pc_present, pc_future, poses_present,
-                                poses_future, do_warping)
+            pc_full, poses_full = self.preprocess_pc_and_poses(
+                pc_full, poses_full, rot_ang, trans_dx, trans_dy,
+                aug_view_size)
+
+        bev = self.generate_bev(pc_present, pc_future, pc_full, poses_present,
+                                poses_future, poses_full, do_warping)
 
         return bev
 
@@ -472,13 +476,15 @@ class BEVGenerator(ABC):
     def extract_pc_dict(pcs: dict):
         pc_past = pcs['pc_present']
         pc_future = pcs['pc_future']
-        return pc_past, pc_future
+        pc_full = pcs['pc_full']
+        return pc_past, pc_future, pc_full
 
     @staticmethod
     def extract_pose_dict(poses: dict):
         poses_past = poses['poses_present']
         poses_future = poses['poses_future']
-        return poses_past, poses_future
+        poses_full = poses['poses_full']
+        return poses_past, poses_future, poses_full
 
     @staticmethod
     def extract_aug_dict(augs: dict):
