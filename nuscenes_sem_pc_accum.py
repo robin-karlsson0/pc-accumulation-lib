@@ -1,12 +1,9 @@
-import os.path as osp
-
 import numpy as np
 import open3d as o3d
-import torch
 
 from bev_generator.rgb_bev import RGBBEVGenerator
 from bev_generator.sem_bev import SemBEVGenerator
-from datasets.nuscenes_utils import homo_transform, pts_feat_from_img
+from datasets.nuscenes_utils import pts_feat_from_img
 from sem_pc_accum import SemanticPointCloudAccumulator
 from utils.onnx_utils import SemSegONNX
 
@@ -50,6 +47,8 @@ class NuScenesSemanticPointCloudAccumulator(SemanticPointCloudAccumulator):
         self.sem_pcs = []  # (N)
         self.poses = []  # (N)
         self.seg_dists = []  # (N-1)
+        self.rgbs = []
+        self.semsegs = []
 
         # BEV generator
         # Default initialization is 'None'
@@ -91,9 +90,12 @@ class NuScenesSemanticPointCloudAccumulator(SemanticPointCloudAccumulator):
             pc = obs['pc']
             pc_cam_idx = obs['pc_cam_idx']
 
-            sem_pc, pose = self.nusc_obs2sem_vec_space(rgbs, pc, pc_cam_idx)
+            sem_pc, pose, semsegs = self.nusc_obs2sem_vec_space(
+                rgbs, pc, pc_cam_idx)
             self.sem_pcs.append(sem_pc)
             self.poses.append(pose)
+            self.rgbs.append(rgbs)
+            self.semsegs.append(semsegs)
 
             # Compute path segment distance
             if len(self.poses) > 1:
@@ -115,6 +117,8 @@ class NuScenesSemanticPointCloudAccumulator(SemanticPointCloudAccumulator):
                     self.sem_pcs = self.sem_pcs[idx:]
                     self.poses = self.poses[idx:]
                     self.seg_dists = self.seg_dists[idx:]
+                    self.rgbs = self.rgbs[idx:]
+                    self.semsegs = self.semsegs[idx:]
 
                 print(f'    #pc {len(self.sem_pcs)} |',
                       f'path length {path_length:.2f}')
@@ -163,6 +167,7 @@ class NuScenesSemanticPointCloudAccumulator(SemanticPointCloudAccumulator):
         # All points initialized to -1 as "invalid until masked"
         pc_rgb_sem = -np.ones((pc.shape[0], 4), dtype=float)  # r, g, b, semseg
 
+        semsegs = []
         for cam_idx, rgb in enumerate(rgbs):
             semseg = self.semseg_model.pred(rgb)[0, 0]
             rgb = np.array(rgb)
@@ -172,6 +177,8 @@ class NuScenesSemanticPointCloudAccumulator(SemanticPointCloudAccumulator):
                 pc[mask_in_rgb, 3:5],
                 np.concatenate([rgb, np.expand_dims(semseg, -1)], axis=2),
                 'nearest')
+
+            semsegs.append(semseg)
 
         #######################################
         #  Filter pointcloud based on semseg
@@ -211,4 +218,4 @@ class NuScenesSemanticPointCloudAccumulator(SemanticPointCloudAccumulator):
         self.T_prev_origin = T_new_origin
         self.pcd_prev = pcd_new
 
-        return pc_xyz_rgb_sem, pose
+        return pc_xyz_rgb_sem, pose, semsegs

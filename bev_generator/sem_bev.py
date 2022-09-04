@@ -1,6 +1,5 @@
-import matplotlib as mpl
-
 mpl.use('agg')  # Must be before pyplot import
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -115,7 +114,7 @@ class SemBEVGenerator(BEVGenerator):
 
         return bev
 
-    def viz_bev(self, bev, file_path):
+    def viz_bev(self, bev, file_path, rgbs=[], semsegs=[]):
         '''
         '''
         present_road = bev['road_present']
@@ -123,25 +122,37 @@ class SemBEVGenerator(BEVGenerator):
 
         H = self.pixel_size
 
+        num_imgs = len(rgbs)
+        num_cols = num_imgs if num_imgs > 3 else 3
+        num_rows = 2 if num_imgs > 0 else 1
+
         if 'road_future' in bev.keys():
             future_road = bev['road_future']
             poses_future = bev['poses_future']
             full_road = bev['road_full']
             poses_full = bev['poses_full']
 
-            _ = plt.figure(figsize=(12, 6))
+            size_per_fig = 6
+            _ = plt.figure(figsize=(size_per_fig * num_cols,
+                                    size_per_fig * num_rows))
 
-            plt.subplot(1, 3, 1)
+            plt.subplot(num_rows, num_cols, 1)
             plt.imshow(present_road, vmin=0, vmax=1)
             plt.plot(poses_present[:, 0], H - poses_present[:, 1], 'k-')
 
-            plt.subplot(1, 3, 2)
+            plt.subplot(num_rows, num_cols, 2)
             plt.imshow(future_road, vmin=0, vmax=1)
             plt.plot(poses_future[:, 0], H - poses_future[:, 1], 'r-')
 
-            plt.subplot(1, 3, 3)
+            plt.subplot(num_rows, num_cols, 3)
             plt.imshow(full_road, vmin=0, vmax=1)
             plt.plot(poses_full[:, 0], H - poses_full[:, 1], 'r-')
+
+            if num_imgs > 0:
+                for idx in range(num_imgs):
+                    plt.subplot(num_rows, num_cols, 1 * num_cols + idx + 1)
+                    plt.imshow(rgbs[idx])
+                    plt.imshow(semsegs[idx] == 0, alpha=0.5, vmin=0, vmax=1)
 
         else:
 

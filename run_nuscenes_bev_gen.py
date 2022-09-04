@@ -41,6 +41,7 @@ if __name__ == '__main__':
                         default=1,
                         help='Should be 1 to avoid noise not segmented out')
     # BEV parameters
+    parser.add_argument('--bev_output_dir', type=str, default='bevs')
     parser.add_argument('--bevs_per_sample', type=int, default=1)
     parser.add_argument('--bev_horizon_dist', type=int, default=120)
     parser.add_argument('--bev_dist_between_samples',
@@ -104,7 +105,7 @@ if __name__ == '__main__':
         'zoom_thresh': args.bev_zoom_thresh,  # 0.10,
     }
 
-    savedir = 'bev_nuscenes_64px'
+    savedir = args.bev_output_dir
     subdir_size = 1000
     viz_to_disk = True  # For debugging purposes
 
@@ -155,6 +156,9 @@ if __name__ == '__main__':
                                              bevs_per_sample,
                                              gen_future=True)
 
+            rgbs = sem_pc_accum.get_rgb(present_idx)[0]
+            semsegs = sem_pc_accum.get_semseg(present_idx)[0]
+
             for bev in bevs:
 
                 # Store BEV samples
@@ -173,7 +177,7 @@ if __name__ == '__main__':
                 # Visualize BEV samples
                 if viz_to_disk:
                     viz_file = os.path.join(output_path, f'viz_{bev_idx}.png')
-                    sem_pc_accum.viz_bev(bev, viz_file)
+                    sem_pc_accum.viz_bev(bev, viz_file, rgbs, semsegs)
 
                 bev_idx += 1
                 bev_count += 1

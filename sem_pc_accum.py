@@ -75,6 +75,8 @@ class SemanticPointCloudAccumulator:
         self.sem_pcs = []  # (N)
         self.poses = []  # (N)
         self.seg_dists = []  # (N-1)
+        self.rgbs = []
+        self.semsegs = []
 
         # BEV generator
         # Default initialization is 'None'
@@ -115,9 +117,11 @@ class SemanticPointCloudAccumulator:
         '''
         for obs_idx in range(len(observations)):
             rgb, pc = observations[obs_idx]
-            sem_pc, pose = self.obs2sem_vec_space(rgb, pc)
+            sem_pc, pose, semseg = self.obs2sem_vec_space(rgb, pc)
             self.sem_pcs.append(sem_pc)
             self.poses.append(pose)
+            self.rgbs.append(rgb)
+            self.semsegs.append(semseg)
 
             # Compute path segment distance
             if len(self.poses) > 1:
@@ -139,6 +143,8 @@ class SemanticPointCloudAccumulator:
                     self.sem_pcs = self.sem_pcs[idx:]
                     self.poses = self.poses[idx:]
                     self.seg_dists = self.seg_dists[idx:]
+                    self.rgbs = self.rgbs[idx:]
+                    self.semsegs = self.semsegs[idx:]
 
                 print(f'    #pc {len(self.sem_pcs)} |',
                       f'path length {path_length:.2f}')
@@ -227,7 +233,7 @@ class SemanticPointCloudAccumulator:
         self.T_prev_origin = T_new_origin
         self.pcd_prev = pcd_new
 
-        return pc_velo_rgbsem, pose
+        return pc_velo_rgbsem, pose, semseg
 
     def get_segment_dists(self) -> list:
         '''
@@ -251,6 +257,24 @@ class SemanticPointCloudAccumulator:
             return np.array(self.poses)
         else:
             return np.array(self.poses[idx])
+
+    def get_rgb(self, idx: int = None) -> list:
+        '''
+        Returns one or all rgb images (PIL.Image) depending on 'idx'.
+        '''
+        if idx is None:
+            return self.rgbs
+        else:
+            return [self.rgbs[idx]]
+
+    def get_semseg(self, idx: int = None) -> list:
+        '''
+        Returns one or all semseg outputs (np.array) depending on 'idx'.
+        '''
+        if idx is None:
+            return self.semsegs
+        else:
+            return [self.semsegs[idx]]
 
     def generate_bev(self,
                      present_idx: int = None,
@@ -420,8 +444,8 @@ class SemanticPointCloudAccumulator:
         line_set.colors = o3d.utility.Vector3dVector(colors)
         o3d.visualization.draw_geometries([mesh_frame, line_set, pcd])
 
-    def viz_bev(self, bev, file_path):
+    def viz_bev(self, bev, file_path, rgbs: list = [], semsegs: list = []):
         '''
         Visualizes a BEV using the BEV generator's visualization function.
         '''
-        self.sem_bev_generator.viz_bev(bev, file_path)
+        self.sem_bev_generator.viz_bev(bev, file_path, rgbs, semsegs)
