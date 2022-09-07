@@ -89,10 +89,10 @@ class SemBEVGenerator(BEVGenerator):
 
             if pc_future is not None:
                 probmap_future_road = probmaps[1]
-                poses_future = self.warp_sparse_points(poses_full, a_1, a_2,
+                poses_future = self.warp_sparse_points(poses_future, a_1, a_2,
                                                        b_1, b_2, i_mid, j_mid,
                                                        i_warp, j_warp)
-                probmap_full_road = probmaps[1]
+                probmap_full_road = probmaps[2]
                 poses_full = self.warp_sparse_points(poses_full, a_1, a_2, b_1,
                                                      b_2, i_mid, j_mid, i_warp,
                                                      j_warp)
@@ -106,6 +106,7 @@ class SemBEVGenerator(BEVGenerator):
 
         if pc_future is not None:
             probmap_future_road = probmap_future_road.astype(np.float16)
+            probmap_full_road = probmap_full_road.astype(np.float16)
             bev.update({
                 'road_future': probmap_future_road,
                 'poses_future': poses_future,
@@ -147,7 +148,7 @@ class SemBEVGenerator(BEVGenerator):
 
             plt.subplot(num_rows, num_cols, 3)
             plt.imshow(full_road, vmin=0, vmax=1)
-            plt.plot(poses_full[:, 0], H - poses_full[:, 1], 'r-')
+            plt.plot(poses_full[:, 0], H - poses_full[:, 1], 'b-')
 
             if num_imgs > 0:
                 for idx in range(num_imgs):
