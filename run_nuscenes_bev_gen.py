@@ -2,6 +2,7 @@ import argparse
 import os
 
 import numpy as np
+from nuscenes.nuscenes import NuScenes
 
 from nuscenes_sem_pc_accum import NuScenesSemanticPointCloudAccumulator
 from obs_dataloaders.nuscenes_obs_dataloader import NuScenesDataloader
@@ -64,6 +65,12 @@ if __name__ == '__main__':
     parser.add_argument('--bev_zoom_thresh', type=float, default=0)
     # ICP parameters
     parser.add_argument('--icp_threshold', type=float, default=1e3)
+    # NuScenes invalid scene attributes
+    parser.add_argument('--skip_attr',
+                        type=str,
+                        nargs='*',
+                        default=[],
+                        help='\'night\' etc.')
 
     args = parser.parse_args()
 
@@ -116,9 +123,28 @@ if __name__ == '__main__':
     subdir_idx = 0
     bev_count = 0
 
-    for scene_id in range(10):
+    # For accessing scene attributes
+    skip_attributes = args.skip_attr
+    nusc = NuScenes(dataroot=args.nuscenes_path)
+
+    for scene_id in range(7, 10):
 
         print(f'Processing scene id {scene_id}')
+
+        # Create a list of attribute strings to check validity of scene
+        scene_invalid = False
+        scene = nusc.scene[scene_id]
+        scene_attr = scene['description'].lower().replace(', ', ',').split(',')
+
+        # Skip scene if any attributes are invalid
+        for skip_attr in skip_attributes:
+            if skip_attr in scene_attr:
+                scene_invalid = True
+                break
+
+        if scene_invalid:
+            print(f'Skip scene id {scene_id} ({skip_attr})')
+            continue
 
         # Initialize accumulator
         sem_pc_accum = NuScenesSemanticPointCloudAccumulator(
