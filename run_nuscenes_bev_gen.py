@@ -127,7 +127,7 @@ if __name__ == '__main__':
     skip_attributes = args.skip_attr
     nusc = NuScenes(dataroot=args.nuscenes_path, version=args.nuscenes_version)
 
-    for scene_id in range(7, 10):
+    for scene_id in range(850):
 
         print(f'Processing scene id {scene_id}')
 
