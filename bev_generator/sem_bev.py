@@ -16,22 +16,21 @@ class SemBEVGenerator(BEVGenerator):
                  view_size: int,
                  pixel_size: int,
                  max_trans_radius: float = 0.,
-                 zoom_thresh: float = 0.):
+                 zoom_thresh: float = 0.,
+                 do_warp: bool = False):
         '''
         Args:
             sem_layers: ['road', 'intensity', 'elevation'] etc.
         '''
-        super().__init__(view_size, pixel_size, max_trans_radius, zoom_thresh)
+        super().__init__(view_size, pixel_size, max_trans_radius, zoom_thresh,
+                         do_warp)
 
         # Dictionary with semantic --> index mapping
         self.sem_idxs = sem_idxs
 
-    def generate_bev(self,
-                     pc_present: np.array,
-                     pc_future: np.array,
-                     poses_present: np.array,
-                     poses_future: np.array,
-                     do_warping: bool = False):
+    def generate_bev(self, pc_present: np.array, pc_future: np.array,
+                     pc_full: np.array, poses_present: np.array,
+                     poses_future: np.array, poses_full: np.array):
         '''
         Args:
             pc_present: Semantic point cloud matrix w. dim (N, 8)
@@ -58,8 +57,13 @@ class SemBEVGenerator(BEVGenerator):
             probmap_future_road = self.gen_sem_probmap(pc_future_static,
                                                        'road')
 
+            pc_full_dynamic, pc_full_static = self.partition_semantic_pc(
+                pc_full, dynamic_filter)
+
+            probmap_full_road = self.gen_sem_probmap(pc_full_static, 'road')
+
         # Warp all probability maps and poses
-        if do_warping:
+        if self.do_warp:
             i_mid = int(self.pixel_size / 2)
             j_mid = i_mid
             # I_crop, J_crop = pixel_size
@@ -71,6 +75,7 @@ class SemBEVGenerator(BEVGenerator):
             probmaps = [probmap_present_road]
             if pc_future is not None:
                 probmaps.append(probmap_future_road)
+                probmaps.append(probmap_full_road)
 
             probmaps = np.stack(probmaps)
             probmaps = self.warp_dense_probmaps(probmaps, a_1, a_2, b_1, b_2)
@@ -84,6 +89,10 @@ class SemBEVGenerator(BEVGenerator):
                 poses_future = self.warp_sparse_points(poses_future, a_1, a_2,
                                                        b_1, b_2, i_mid, j_mid,
                                                        i_warp, j_warp)
+                probmap_full_road = probmaps[2]
+                poses_full = self.warp_sparse_points(poses_full, a_1, a_2, b_1,
+                                                     b_2, i_mid, j_mid, i_warp,
+                                                     j_warp)
 
         # Reduce storage size
         probmap_present_road = probmap_present_road.astype(np.float16)
@@ -94,14 +103,17 @@ class SemBEVGenerator(BEVGenerator):
 
         if pc_future is not None:
             probmap_future_road = probmap_future_road.astype(np.float16)
+            probmap_full_road = probmap_full_road.astype(np.float16)
             bev.update({
                 'road_future': probmap_future_road,
                 'poses_future': poses_future,
+                'road_full': probmap_full_road,
+                'poses_full': poses_full,
             })
 
         return bev
 
-    def viz_bev(self, bev, file_path):
+    def viz_bev(self, bev, file_path, rgbs=[], semsegs=[]):
         '''
         '''
         present_road = bev['road_present']
@@ -109,19 +121,37 @@ class SemBEVGenerator(BEVGenerator):
 
         H = self.pixel_size
 
+        num_imgs = len(rgbs)
+        num_cols = num_imgs if num_imgs > 3 else 3
+        num_rows = 2 if num_imgs > 0 else 1
+
         if 'road_future' in bev.keys():
             future_road = bev['road_future']
             poses_future = bev['poses_future']
+            full_road = bev['road_full']
+            poses_full = bev['poses_full']
 
-            _ = plt.figure(figsize=(12, 6))
+            size_per_fig = 6
+            _ = plt.figure(figsize=(size_per_fig * num_cols,
+                                    size_per_fig * num_rows))
 
-            plt.subplot(1, 2, 1)
+            plt.subplot(num_rows, num_cols, 1)
             plt.imshow(present_road, vmin=0, vmax=1)
             plt.plot(poses_present[:, 0], H - poses_present[:, 1], 'k-')
 
-            plt.subplot(1, 2, 2)
+            plt.subplot(num_rows, num_cols, 2)
             plt.imshow(future_road, vmin=0, vmax=1)
             plt.plot(poses_future[:, 0], H - poses_future[:, 1], 'r-')
+
+            plt.subplot(num_rows, num_cols, 3)
+            plt.imshow(full_road, vmin=0, vmax=1)
+            plt.plot(poses_full[:, 0], H - poses_full[:, 1], 'b-')
+
+            if num_imgs > 0:
+                for idx in range(num_imgs):
+                    plt.subplot(num_rows, num_cols, 1 * num_cols + idx + 1)
+                    plt.imshow(rgbs[idx])
+                    plt.imshow(semsegs[idx] == 0, alpha=0.5, vmin=0, vmax=1)
 
         else:
 

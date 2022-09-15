@@ -1,3 +1,4 @@
+import argparse
 import os
 
 import numpy as np
@@ -21,10 +22,57 @@ def dist(pose_0: np.array, pose_1: np.array):
 
 if __name__ == '__main__':
 
+    parser = argparse.ArgumentParser()
+    parser.add_argument('kitti360_path',
+                        type=str,
+                        help='Absolute path to dataset root (KITTI-360/).')
+    parser.add_argument(
+        'semseg_onnx_path',
+        type=str,
+        help='Relative path to a semantic segmentation ONNX model.')
+    # Accumulator parameters
+    parser.add_argument('--accumulation_horizon',
+                        type=int,
+                        default=200,
+                        help='Number of point clouds to accumulate.')
+    parser.add_argument('--accum_batch_size',
+                        type=int,
+                        default=2,
+                        help='Set > 1 to avoid zero length computations')
+    parser.add_argument('--accum_horizon_dist',
+                        type=float,
+                        default=300,
+                        help='From front to back')
+    # BEV parameters
+    parser.add_argument('--bev_output_dir', type=str, default='bevs')
+    parser.add_argument('--bevs_per_sample', type=int, default=1)
+    parser.add_argument('--bev_horizon_dist', type=int, default=120)
+    parser.add_argument('--bev_dist_between_samples',
+                        type=int,
+                        default=1,
+                        help='[m]')
+    parser.add_argument('--bev_type',
+                        type=str,
+                        default='sem',
+                        help='sem or rgb')
+    parser.add_argument('--bev_view_size',
+                        type=int,
+                        default=80,
+                        help='BEV representation size in [m]')
+    parser.add_argument('--bev_pixel_size',
+                        type=int,
+                        default=512,
+                        help='BEV representation size in [px]')
+    parser.add_argument('--bev_max_trans_radius', type=float, default=0)
+    parser.add_argument('--bev_zoom_thresh', type=float, default=0)
+    parser.add_argument('--bev_do_warp', action="store_true")
+    # ICP parameters
+    parser.add_argument('--icp_threshold', type=float, default=1e3)
+
+    args = parser.parse_args()
+
     # Path to dataset root directory
-    kitti360_path = '/home/robin/datasets/KITTI-360'
-    # Path to ONNX semantic segmentation model
-    semseg_onnx_path = 'semseg_rn50_160k_cm.onnx'
+    kitti360_path = args.kitti360_path
     # Semantic exclusion filters
     # 0 : Road
     # 1 : Sidewalk
@@ -48,8 +96,6 @@ if __name__ == '__main__':
     filters = [10, 11, 12, 16, 18]
     sem_idxs = {'road': 0, 'car': 13, 'truck': 14, 'bus': 15, 'motorcycle': 17}
 
-    accum_horizon_dist = 300  # From front to back
-
     ######################
     #  Calibration info
     ######################
@@ -71,36 +117,31 @@ if __name__ == '__main__':
     calib_params['f_y'] = f_y
 
     ####################
-    #  ICP parameters
-    ####################
-    icp_threshold = 1e3
-
-    ####################
     #  BEV parameters
     ####################
-    bevs_per_sample = 1
-    bev_horizon_dist = 120
-    bev_dist_between_samples = 10.
-    voxel_size = 0.1
+    bevs_per_sample = args.bevs_per_sample
+    bev_horizon_dist = args.bev_horizon_dist
+    bev_dist_between_samples = args.bev_dist_between_samples
 
     bev_params = {
-        'type': 'sem',  # Options: ['sem', 'rgb']
-        'view_size': 80,
-        'pixel_size': 512,
-        'max_trans_radius': 10,
-        'zoom_thresh': 0.10,
+        'type': args.bev_type,  # Options: ['sem', 'rgb']
+        'view_size': args.bev_view_size,
+        'pixel_size': args.bev_pixel_size,
+        'max_trans_radius': args.bev_max_trans_radius,  # 10,
+        'zoom_thresh': args.bev_zoom_thresh,  # 0.10,
+        'do_warp': args.bev_do_warp,
     }
 
-    savedir = 'bevs'
+    savedir = args.bev_output_dir
     subdir_size = 1000
     viz_to_disk = True  # For debugging purposes
 
     # Initialize accumulator
     sem_pc_accum = SemanticPointCloudAccumulator(
-        accum_horizon_dist,
+        args.accum_horizon_dist,
         calib_params,
-        icp_threshold,
-        semseg_onnx_path,
+        args.icp_threshold,
+        args.semseg_onnx_path,
         filters,
         sem_idxs,
         bev_params,
@@ -109,22 +150,20 @@ if __name__ == '__main__':
     #################
     #  Sample data
     #################
-    batch_size = 5
+    batch_size = args.accum_batch_size
     sequences = [
         '2013_05_28_drive_0000_sync',
-        # '2013_05_28_drive_0002_sync',
-        # '2013_05_28_drive_0003_sync',
-        # '2013_05_28_drive_0004_sync',
-        # '2013_05_28_drive_0005_sync',
-        # '2013_05_28_drive_0006_sync',
-        # '2013_05_28_drive_0007_sync',
-        # '2013_05_28_drive_0009_sync',
-        # '2013_05_28_drive_0010_sync',
+        '2013_05_28_drive_0002_sync',
+        '2013_05_28_drive_0003_sync',
+        '2013_05_28_drive_0004_sync',
+        '2013_05_28_drive_0005_sync',
+        '2013_05_28_drive_0006_sync',
+        '2013_05_28_drive_0007_sync',
+        '2013_05_28_drive_0009_sync',
+        '2013_05_28_drive_0010_sync',
     ]
-    start_idxs = [130 + 1000]
-    # [130, 4613, 40, 90, 50, 120, 0, 90, 0]
-    end_idxs = [11400]
-    # [11400, 18997, 770, 11530, 6660, 9698, 2960, 13945, 3540]
+    start_idxs = [130 + 500, 4613, 40, 90, 50, 120, 0, 90, 0]
+    end_idxs = [11400, 18997, 770, 11530, 6660, 9698, 2960, 13945, 3540]
 
     dataloader = Kitti360Dataloader(kitti360_path, batch_size, sequences,
                                     start_idxs, end_idxs)
@@ -171,6 +210,9 @@ if __name__ == '__main__':
                                          bevs_per_sample,
                                          gen_future=True)
 
+        rgbs = sem_pc_accum.get_rgb(present_idx)
+        semsegs = sem_pc_accum.get_semseg(present_idx)
+
         for bev in bevs:
 
             # Store BEV samples
@@ -188,7 +230,7 @@ if __name__ == '__main__':
             # Visualize BEV samples
             if viz_to_disk:
                 viz_file = os.path.join(output_path, f'viz_{bev_idx}.png')
-                sem_pc_accum.viz_bev(bev, viz_file)
+                sem_pc_accum.viz_bev(bev, viz_file, rgbs, semsegs)
 
             bev_idx += 1
             bev_count += 1
