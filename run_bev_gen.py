@@ -162,7 +162,7 @@ if __name__ == '__main__':
         '2013_05_28_drive_0009_sync',
         '2013_05_28_drive_0010_sync',
     ]
-    start_idxs = [130 + 500, 4613, 40, 90, 50, 120, 0, 90, 0]
+    start_idxs = [130, 4613, 40, 90, 50, 120, 0, 90, 0]
     end_idxs = [11400, 18997, 770, 11530, 6660, 9698, 2960, 13945, 3540]
 
     dataloader = Kitti360Dataloader(kitti360_path, batch_size, sequences,
