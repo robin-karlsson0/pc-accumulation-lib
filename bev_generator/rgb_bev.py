@@ -16,10 +16,12 @@ class RGBBEVGenerator(BEVGenerator):
                  pixel_size: int,
                  rgb_fill: int = 0,
                  max_trans_radius: float = 0.,
-                 zoom_thresh: float = 0.):
+                 zoom_thresh: float = 0.,
+                 do_warp: bool = False):
         '''
         '''
-        super().__init__(view_size, pixel_size, max_trans_radius, zoom_thresh)
+        super().__init__(view_size, pixel_size, max_trans_radius, zoom_thresh,
+                         do_warp)
 
         # TODO Implement illumination normalization module
 

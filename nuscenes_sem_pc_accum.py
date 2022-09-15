@@ -60,6 +60,7 @@ class NuScenesSemanticPointCloudAccumulator(SemanticPointCloudAccumulator):
                 bev_params['pixel_size'],
                 bev_params['max_trans_radius'],
                 bev_params['zoom_thresh'],
+                bev_params['do_warp'],
             )
         elif bev_params['type'] == 'rgb':
             self.sem_bev_generator = RGBBEVGenerator(
@@ -68,6 +69,7 @@ class NuScenesSemanticPointCloudAccumulator(SemanticPointCloudAccumulator):
                 0,
                 bev_params['max_trans_radius'],
                 bev_params['zoom_thresh'],
+                bev_params['do_warp'],
             )
 
     def integrate(self, observations: list):

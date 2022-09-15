@@ -63,6 +63,7 @@ if __name__ == '__main__':
                         help='BEV representation size in [px]')
     parser.add_argument('--bev_max_trans_radius', type=float, default=0)
     parser.add_argument('--bev_zoom_thresh', type=float, default=0)
+    parser.add_argument('--bev_do_warp', action="store_true")
     # ICP parameters
     parser.add_argument('--icp_threshold', type=float, default=1e3)
     # NuScenes invalid scene attributes
@@ -110,6 +111,7 @@ if __name__ == '__main__':
         'pixel_size': args.bev_pixel_size,
         'max_trans_radius': args.bev_max_trans_radius,  # 10,
         'zoom_thresh': args.bev_zoom_thresh,  # 0.10,
+        'do_warp': args.bev_do_warp,
     }
 
     savedir = args.bev_output_dir
@@ -134,13 +136,16 @@ if __name__ == '__main__':
         # Create a list of attribute strings to check validity of scene
         scene_invalid = False
         scene = nusc.scene[scene_id]
-        scene_attr = scene['description'].lower().replace(', ', ',').split(',')
+        scene['description'] = scene['description'].lower()
+        scene_attributes = scene['description'].replace(', ', ',').split(',')
 
-        # Skip scene if any attributes are invalid
+        # Skip scene if any attributes are invalid by specified attribute being
+        # a substring in a scene description attribute
         for skip_attr in skip_attributes:
-            if skip_attr in scene_attr:
-                scene_invalid = True
-                break
+            for scene_attr in scene_attributes:
+                if skip_attr in scene_attr:
+                    scene_invalid = True
+                    break
 
         if scene_invalid:
             print(f'Skip scene id {scene_id} ({skip_attr})')

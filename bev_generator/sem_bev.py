@@ -16,24 +16,21 @@ class SemBEVGenerator(BEVGenerator):
                  view_size: int,
                  pixel_size: int,
                  max_trans_radius: float = 0.,
-                 zoom_thresh: float = 0.):
+                 zoom_thresh: float = 0.,
+                 do_warp: bool = False):
         '''
         Args:
             sem_layers: ['road', 'intensity', 'elevation'] etc.
         '''
-        super().__init__(view_size, pixel_size, max_trans_radius, zoom_thresh)
+        super().__init__(view_size, pixel_size, max_trans_radius, zoom_thresh,
+                         do_warp)
 
         # Dictionary with semantic --> index mapping
         self.sem_idxs = sem_idxs
 
-    def generate_bev(self,
-                     pc_present: np.array,
-                     pc_future: np.array,
-                     pc_full: np.array,
-                     poses_present: np.array,
-                     poses_future: np.array,
-                     poses_full: np.array,
-                     do_warping: bool = False):
+    def generate_bev(self, pc_present: np.array, pc_future: np.array,
+                     pc_full: np.array, poses_present: np.array,
+                     poses_future: np.array, poses_full: np.array):
         '''
         Args:
             pc_present: Semantic point cloud matrix w. dim (N, 8)
@@ -66,7 +63,7 @@ class SemBEVGenerator(BEVGenerator):
             probmap_full_road = self.gen_sem_probmap(pc_full_static, 'road')
 
         # Warp all probability maps and poses
-        if do_warping:
+        if self.do_warp:
             i_mid = int(self.pixel_size / 2)
             j_mid = i_mid
             # I_crop, J_crop = pixel_size

@@ -15,7 +15,8 @@ class BEVGenerator(ABC):
                  view_size: int,
                  pixel_size: int,
                  max_trans_radius: float = 0.,
-                 zoom_thresh: float = 0.):
+                 zoom_thresh: float = 0.,
+                 do_warp: bool = False):
         '''
         '''
         # View frame size in [m]
@@ -26,6 +27,7 @@ class BEVGenerator(ABC):
         # Random augmentation parameters
         self.max_trans_radius = max_trans_radius
         self.zoom_thresh = zoom_thresh
+        self.do_warp = do_warp
         if self.max_trans_radius > 0. or self.zoom_thresh > 0.:
             self.do_aug = True
         else:
@@ -34,12 +36,8 @@ class BEVGenerator(ABC):
         print("NOTE: Removes points above ego-vehicle height!")
 
     @abstractmethod
-    def generate_bev(self,
-                     pc_present: np.array,
-                     pc_future: np.array,
-                     poses_present: np.array,
-                     poses_future: np.array,
-                     do_warping: bool = False):
+    def generate_bev(self, pc_present: np.array, pc_future: np.array,
+                     poses_present: np.array, poses_future: np.array):
         '''
         Implement this function to generate actual BEV representations from the
         preprocessed semantic point cloud and poses.
@@ -84,7 +82,7 @@ class BEVGenerator(ABC):
                 aug_view_size)
 
         bev = self.generate_bev(pc_present, pc_future, pc_full, poses_present,
-                                poses_future, poses_full, do_warping)
+                                poses_future, poses_full)
 
         return bev
 
