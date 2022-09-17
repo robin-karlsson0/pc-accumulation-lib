@@ -33,7 +33,7 @@ class BEVGenerator(ABC):
         else:
             self.do_aug = False
 
-        print("NOTE: Removes points above ego-vehicle height!")
+        # print("NOTE: Removes points above ego-vehicle height!")
 
     @abstractmethod
     def generate_bev(self, pc_present: np.array, pc_future: np.array,
@@ -98,8 +98,8 @@ class BEVGenerator(ABC):
                                          aug_view_size)
 
         # Remove points above ego-vehicle height (for bridges, tunnels etc.)
-        mask = pc[:, 2] < 1.
-        pc = pc[mask]
+        # mask = pc[:, 2] < 1.
+        # pc = pc[mask]
 
         # Metric to pixel coordinates
         pc = self.pos2grid(pc, aug_view_size)

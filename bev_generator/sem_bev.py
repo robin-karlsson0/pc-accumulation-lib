@@ -151,7 +151,12 @@ class SemBEVGenerator(BEVGenerator):
                 for idx in range(num_imgs):
                     plt.subplot(num_rows, num_cols, 1 * num_cols + idx + 1)
                     plt.imshow(rgbs[idx])
-                    plt.imshow(semsegs[idx] == 0, alpha=0.5, vmin=0, vmax=1)
+                    semseg = semsegs[idx]
+                    if semseg is not None:
+                        plt.imshow(semsegs[idx] == 0,
+                                   alpha=0.5,
+                                   vmin=0,
+                                   vmax=1)
 
         else:
 

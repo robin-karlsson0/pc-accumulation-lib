@@ -43,6 +43,7 @@ if __name__ == '__main__':
                         type=float,
                         default=300,
                         help='From front to back')
+    parser.add_argument('--use_gt_sem', action="store_true")
     # BEV parameters
     parser.add_argument('--bev_output_dir', type=str, default='bevs')
     parser.add_argument('--bevs_per_sample', type=int, default=1)
@@ -93,7 +94,8 @@ if __name__ == '__main__':
     # 16 : Train
     # 17 : Motorcycle
     # 18 : Bicycle
-    filters = [10, 11, 12, 16, 18]
+    # 255: Ignore
+    filters = [10, 11, 12, 16, 18, 255]
     sem_idxs = {'road': 0, 'car': 13, 'truck': 14, 'bus': 15, 'motorcycle': 17}
 
     ######################
@@ -144,6 +146,7 @@ if __name__ == '__main__':
         args.semseg_onnx_path,
         filters,
         sem_idxs,
+        args.use_gt_sem,
         bev_params,
     )
 

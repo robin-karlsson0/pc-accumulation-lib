@@ -36,7 +36,8 @@ class SemanticPointCloudAccumulator:
 
     def __init__(self, horizon_dist: float, calib_params: dict,
                  icp_threshold: float, semseg_onnx_path: str,
-                 semseg_filters: list, sem_idxs: dict, bev_params: dict):
+                 semseg_filters: list, sem_idxs: dict, use_gt_sem: bool,
+                 bev_params: dict):
         '''
         Args:
             calib_params: h_velo_cam: np.array,
@@ -49,11 +50,15 @@ class SemanticPointCloudAccumulator:
                               calib_params['f_y'] --> f_y
             semseg_filters: List of semantic class idxs to filter out from
                             point cloud.
+            use_gt_sem: Uses GT semantic classes for each point if true.
         '''
         # Semantic segmentation model
-        self.semseg_model = SemSegONNX(semseg_onnx_path)
+        self.semseg_model = None
+        if use_gt_sem is False:
+            self.semseg_model = SemSegONNX(semseg_onnx_path)
         self.semseg_filters = semseg_filters
         self.sem_idxs = sem_idxs
+        self.use_gt_sem = use_gt_sem
 
         # Calibration parameters
         self.H_velo_cam = calib_params['h_velo_cam']
@@ -119,8 +124,12 @@ class SemanticPointCloudAccumulator:
             observations: List of K tuples (rgb, pc)
         '''
         for obs_idx in range(len(observations)):
-            rgb, pc = observations[obs_idx]
-            sem_pc, pose, semseg = self.obs2sem_vec_space(rgb, pc)
+            if self.use_gt_sem:
+                rgb, pc, sem_gt = observations[obs_idx]
+                sem_pc, pose, semseg = self.obs2sem_vec_space(rgb, pc, sem_gt)
+            else:
+                rgb, pc, _ = observations[obs_idx]
+                sem_pc, pose, semseg = self.obs2sem_vec_space(rgb, pc)
             self.sem_pcs.append(sem_pc)
             self.poses.append(pose)
             self.rgbs.append(rgb)
@@ -171,7 +180,10 @@ class SemanticPointCloudAccumulator:
 
         return incr_path_dist
 
-    def obs2sem_vec_space(self, rgb: Image, pc: np.array) -> tuple:
+    def obs2sem_vec_space(self,
+                          rgb: Image,
+                          pc: np.array,
+                          sem_gt: np.array = None) -> tuple:
         '''
         Converts a new observation to a semantic point cloud in the common
         vector space.
@@ -181,8 +193,10 @@ class SemanticPointCloudAccumulator:
 
         Args:
             rgb: RGB image.
-            pc: Semantic point cloud as row vector matrix w. dim (N, 8)
-                [x, y, z, intensity, r, g, b, sem_idx]
+            pc: Point cloud as row vector matrix w. dim (N, 8)
+                [x, y, z, intensity]
+            sem_gt: Ground truth semantic class for each point (N, 1)
+                    If 'None' --> Compute semantics from image
 
         Returns:
             pc_velo_rgbsem (np.array): Semantic point cloud as row vector
@@ -206,13 +220,20 @@ class SemanticPointCloudAccumulator:
         T_new_origin = np.matmul(self.T_prev_origin, T_new_prev)
 
         # Semantic point cloud
-        semseg = self.semseg_model.pred(rgb)[0, 0]
-        pc_velo_rgb = gen_semantic_pc(pc, np.array(rgb), self.P_velo_frame)
-        pc_velo_sem = gen_semantic_pc(pc, np.expand_dims(semseg, -1),
-                                      self.P_velo_frame)
-
-        pc_velo_rgbsem = np.concatenate((pc_velo_rgb, pc_velo_sem[:, -1:]),
-                                        axis=1)
+        if sem_gt is None:
+            semseg = self.semseg_model.pred(rgb)[0, 0]
+            pc_velo_rgb = gen_semantic_pc(pc, np.array(rgb), self.P_velo_frame)
+            pc_velo_sem = gen_semantic_pc(pc, np.expand_dims(semseg, -1),
+                                          self.P_velo_frame)  # (N, 5)
+            pc_velo_rgbsem = np.concatenate((pc_velo_rgb, pc_velo_sem[:, -1:]),
+                                            axis=1)
+        else:
+            semseg = None
+            N = sem_gt.shape[0]
+            pc_velo_rgb = np.zeros((N, 3))
+            pc_velo_sem = sem_gt
+            pc_velo_rgbsem = np.concatenate(
+                (pc, pc_velo_rgb, pc_velo_sem[:, -1:]), axis=1)
 
         # Transform point cloud 'ego --> abs' homogeneous coordinates
         N = pc_velo_rgbsem.shape[0]
