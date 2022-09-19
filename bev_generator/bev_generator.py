@@ -215,6 +215,27 @@ class BEVGenerator(ABC):
 
         return probmap_sem
 
+    def gen_intensity_map(self, pc: np.array, sem_cls: str):
+        '''
+        Generates a normalized intensity map from points belonging to a
+        semantic class.
+
+        Args:
+            pc: dim (N, M) [x, y, z, i, ... ].
+        '''
+        sem_idxs = [self.sem_idxs[sem_cls]]
+        # Partition point cloud into 'semantic' and 'non-semantic' components
+        pc_sem, _ = self.partition_semantic_pc(pc, sem_idxs)
+
+        pc_int = pc_sem[:, 3]
+        gridmap_int_sum = self.gen_gridmap_count_map(pc_sem, weights=pc_int)
+        gridmap_count = self.gen_gridmap_count_map(pc_sem)
+
+        # Summed intensity --> average intensity
+        gridmap_int = gridmap_int_sum / (gridmap_count + 1)
+
+        return gridmap_int
+
     @staticmethod
     def partition_semantic_pc(pc_mat: np.array, sems: list) -> np.array:
         '''
@@ -234,7 +255,9 @@ class BEVGenerator(ABC):
 
         return pc_sem, pc_notsem
 
-    def gen_gridmap_count_map(self, pc: np.array) -> np.array:
+    def gen_gridmap_count_map(self,
+                              pc: np.array,
+                              weights: np.array = None) -> np.array:
         '''
         Generates a gridmap with number of points in each grid element.
         '''
@@ -243,7 +266,8 @@ class BEVGenerator(ABC):
             ij[:, 1],
             ij[:, 0],
             range=[[0, self.pixel_size], [0, self.pixel_size]],
-            bins=[self.pixel_size, self.pixel_size])
+            bins=[self.pixel_size, self.pixel_size],
+            weights=weights)
 
         # Image to Cartesian coordinate axis direction
         gridmap_counts = np.flip(gridmap_counts, axis=0)
