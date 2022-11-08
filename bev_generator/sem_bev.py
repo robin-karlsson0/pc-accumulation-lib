@@ -132,6 +132,7 @@ class SemBEVGenerator(BEVGenerator):
         present_road = bev['road_present']
         poses_present = bev['poses_present']
         present_intensity = bev['intensity_present']
+        present_intensity = self.road_marking_transform(present_intensity)
 
         H = self.pixel_size
 
@@ -146,6 +147,9 @@ class SemBEVGenerator(BEVGenerator):
             poses_full = bev['poses_full']
             future_intensity = bev['intensity_future']
             full_intensity = bev['intensity_full']
+
+            future_intensity = self.road_marking_transform(future_intensity)
+            full_intensity = self.road_marking_transform(full_intensity)
 
             size_per_fig = 6
             _ = plt.figure(figsize=(size_per_fig * num_cols,
@@ -167,12 +171,15 @@ class SemBEVGenerator(BEVGenerator):
             # Intensity
             plt.subplot(num_rows, num_cols, num_cols + 1)
             plt.imshow(present_intensity, vmin=0, vmax=1)
+            plt.plot(poses_present[:, 0], H - poses_present[:, 1], 'r-')
 
             plt.subplot(num_rows, num_cols, num_cols + 2)
             plt.imshow(future_intensity, vmin=0, vmax=1)
+            plt.plot(poses_future[:, 0], H - poses_future[:, 1], 'r-')
 
             plt.subplot(num_rows, num_cols, num_cols + 3)
             plt.imshow(full_intensity, vmin=0, vmax=1)
+            plt.plot(poses_full[:, 0], H - poses_full[:, 1], 'r-')
 
             if num_imgs > 0:
                 for idx in range(num_imgs):
@@ -197,3 +204,21 @@ class SemBEVGenerator(BEVGenerator):
         plt.savefig(file_path)
         plt.clf()
         plt.close()
+
+    def road_marking_transform(self, intensity_map):
+        '''
+        Args:
+            intensity_map: Value interval (0, 1)
+        '''
+        int_scaler = 20
+        int_sep_scaler = 20
+        int_mid_threshold = 0.5
+        intensity_map = int_scaler * self.sigmoid(
+            int_sep_scaler * (intensity_map - int_mid_threshold))
+        # Normalization
+        intensity_map[intensity_map > 1.] = 1.
+        return intensity_map
+
+    @staticmethod
+    def sigmoid(z):
+        return 1 / (1 + np.exp(-z))
