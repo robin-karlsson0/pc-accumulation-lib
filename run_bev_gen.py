@@ -153,7 +153,7 @@ if __name__ == '__main__':
     #################
     #  Sample data
     #################
-    batch_size = args.accum_batch_size
+    batch_size = 1  # args.accum_batch_size
     sequences = [
         '2013_05_28_drive_0000_sync',
         '2013_05_28_drive_0002_sync',
@@ -209,6 +209,9 @@ if __name__ == '__main__':
             delta_pose = pose_f - pose_b
             pose_0 -= delta_pose
 
+        if len(sem_pc_accum.poses) < 2:
+            continue
+
         incr_path_dists = sem_pc_accum.get_incremental_path_dists()
 
         # Condition (1): Sufficient distance to backward horizon
@@ -245,7 +248,7 @@ if __name__ == '__main__':
         for bev in bevs:
 
             # Store BEV samples
-            if bev_idx > 1000:
+            if bev_idx >= 1000:
                 bev_idx = 0
                 subdir_idx += 1
             filename = f'bev_{bev_idx}.pkl'

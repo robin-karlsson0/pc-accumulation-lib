@@ -126,58 +126,75 @@ class SemanticPointCloudAccumulator:
         Args:
             observations: List of K tuples (rgb, pc)
         '''
-        for obs_idx in range(len(observations)):
-            if self.use_gt_sem:
-                rgb, pc, sem_gt = observations[obs_idx]
-                sem_pc, pose, semseg = self.obs2sem_vec_space(rgb, pc, sem_gt)
-            else:
-                rgb, pc, _ = observations[obs_idx]
-                sem_pc, pose, semseg = self.obs2sem_vec_space(rgb, pc)
+        if self.use_gt_sem:
+            rgb, pc, sem_gt = observations[0]
+            sem_pc, pose, semseg, T_new_prev = self.obs2sem_vec_space(
+                rgb, pc, sem_gt)
+        else:
+            rgb, pc, _ = observations[0]
+            sem_pc, pose, semseg = self.obs2sem_vec_space(rgb, pc)
 
-            # Skip integrating when self-localization fails (discontinous path)
+        if len(self.poses) > 0:
 
-            self.sem_pcs.append(sem_pc)
-            self.poses.append(pose)
-            self.rgbs.append(rgb)
-            self.semsegs.append(semseg)
+            # Transform previous poses to new ego coordinate system
+            new_poses = []
+            for pose_ in self.poses:
+                # Homogeneous spatial coordinates
+                new_pose = np.matmul(T_new_prev, np.array([pose_ + [1]]).T)
+                new_pose = new_pose[:, 0][:-1]  # (4,1) --> (3)
+                new_pose = list(new_pose)
+                new_poses.append(new_pose)
+            self.poses = new_poses
 
-            # Compute path segment distance
-            if len(self.poses) > 1:
-                seg_dist = self.dist(np.array(self.poses[-1]),
-                                     np.array(self.poses[-2]))
-                self.seg_dists.append(seg_dist)
+            # Transform previous observations to new ego coordinate system
+            new_sem_pcs = []
+            for sem_pc_ in self.sem_pcs:
+                # Skip transforming empty point clouds
+                if sem_pc_.shape[0] == 0:
+                    new_sem_pcs.append(sem_pc_)
+                    continue
+                # Homogeneous spatial coordinates
+                N = sem_pc_.shape[0]
+                sem_pc_homo = np.concatenate((sem_pc_[:, :3], np.ones((N, 1))),
+                                             axis=1)
+                sem_pc_homo = np.matmul(T_new_prev, sem_pc_homo.T).T
+                # Replace spatial coordinates
+                sem_pc_[:, :3] = sem_pc_homo[:, :3]
+                new_sem_pcs.append(sem_pc_)
+            self.sem_pcs = new_sem_pcs
 
-                path_length = np.sum(self.seg_dists)
+        # TODO Skip integrating when self-localization fails (discontinous path)
 
-                if path_length > self.horizon_dist:
-                    # Incremental path distance starting from zero
-                    incr_path_dists = self.get_incremental_path_dists()
-                    # Elements beyond horizon distance become negative
-                    overshoot = path_length - self.horizon_dist
-                    incr_path_dists -= overshoot
-                    # Find first non-negative element index ==> Within horizon
-                    idx = (incr_path_dists > 0.).argmax()
-                    # Remove elements before 'idx' as they are outside horizon
-                    self.sem_pcs = self.sem_pcs[idx:]
-                    self.poses = self.poses[idx:]
-                    self.seg_dists = self.seg_dists[idx:]
-                    self.rgbs = self.rgbs[idx:]
-                    self.semsegs = self.semsegs[idx:]
+        self.sem_pcs.append(sem_pc)
+        self.poses.append(pose)
+        self.rgbs.append(rgb)
+        self.semsegs.append(semseg)
 
-                print(f'    #pc {len(self.sem_pcs)} |',
-                      f'path length {path_length:.2f}')
+        # Compute path segment distance
+        if len(self.poses) > 1:
+            seg_dist = self.dist(np.array(self.poses[-1]),
+                                 np.array(self.poses[-2]))
+            self.seg_dists.append(seg_dist)
 
-        # Reset abs reference frame --> origin
-        abs_pose = np.array(self.poses[-1])
-        abs_pose_pc = np.array([self.poses[-1] + [0] * 5])  # (1, 8)
+            path_length = np.sum(self.seg_dists)
 
-        self.sem_pcs = [sem_pc - abs_pose_pc for sem_pc in self.sem_pcs]
-        self.poses = [list(np.array(pose) - abs_pose) for pose in self.poses]
+            if path_length > self.horizon_dist:
+                # Incremental path distance starting from zero
+                incr_path_dists = self.get_incremental_path_dists()
+                # Elements beyond horizon distance become negative
+                overshoot = path_length - self.horizon_dist
+                incr_path_dists -= overshoot
+                # Find first non-negative element index ==> Within horizon
+                idx = (incr_path_dists > 0.).argmax()
+                # Remove elements before 'idx' as they are outside horizon
+                self.sem_pcs = self.sem_pcs[idx:]
+                self.poses = self.poses[idx:]
+                self.seg_dists = self.seg_dists[idx:]
+                self.rgbs = self.rgbs[idx:]
+                self.semsegs = self.semsegs[idx:]
 
-        # Reset the (x,y,z) coordinates of transformation matrix
-        self.T_prev_origin[0, 3] = 0.
-        self.T_prev_origin[1, 3] = 0.
-        self.T_prev_origin[2, 3] = 0.
+            print(f'    #pc {len(self.sem_pcs)} |',
+                  f'path length {path_length:.2f}')
 
     @staticmethod
     def comp_incr_path_dist(seg_dists: list):
@@ -232,7 +249,7 @@ class SemanticPointCloudAccumulator:
         target = self.pcd_prev
         source = pcd_new
         reg_p2l = o3d.pipelines.registration.registration_icp(
-            source, target, self.icp_threshold, self.icp_trans_init,
+            target, source, self.icp_threshold, self.icp_trans_init,
             o3d.pipelines.registration.TransformationEstimationPointToPlane())
         T_new_prev = reg_p2l.transformation
         T_new_origin = np.matmul(self.T_prev_origin, T_new_prev)
@@ -257,7 +274,7 @@ class SemanticPointCloudAccumulator:
         N = pc_velo_rgbsem.shape[0]
         pc_velo_homo = np.concatenate((pc_velo_rgbsem[:, :3], np.ones((N, 1))),
                                       axis=1)
-        pc_velo_homo = np.matmul(T_new_origin, pc_velo_homo.T).T
+        # pc_velo_homo = np.matmul(T_new_origin, pc_velo_homo.T).T
         # Replace spatial coordinates
         pc_velo_rgbsem[:, :3] = pc_velo_homo[:, :3]
 
@@ -268,14 +285,14 @@ class SemanticPointCloudAccumulator:
         # Compute pose in 'absolute' coordinates
         # Pose = Project origin in ego ref. frame --> abs
         pose = np.array([[0., 0., 0., 1.]]).T
-        pose = np.matmul(T_new_origin, pose)
+        # pose = np.matmul(T_new_origin, pose)
         pose = pose.T[0][:-1]  # Remove homogeneous coordinate
         pose = pose.tolist()
 
         self.T_prev_origin = T_new_origin
         self.pcd_prev = pcd_new
 
-        return pc_velo_rgbsem, pose, semseg
+        return pc_velo_rgbsem, pose, semseg, T_new_prev
 
     def get_segment_dists(self) -> list:
         '''
