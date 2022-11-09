@@ -174,7 +174,10 @@ class SemanticPointCloudAccumulator:
         self.sem_pcs = [sem_pc - abs_pose_pc for sem_pc in self.sem_pcs]
         self.poses = [list(np.array(pose) - abs_pose) for pose in self.poses]
 
-        self.T_prev_origin = np.eye(4)
+        # Reset the (x,y,z) coordinates of transformation matrix
+        self.T_prev_origin[0, 3] = 0.
+        self.T_prev_origin[1, 3] = 0.
+        self.T_prev_origin[2, 3] = 0.
 
     @staticmethod
     def comp_incr_path_dist(seg_dists: list):
