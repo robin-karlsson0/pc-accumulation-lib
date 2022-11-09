@@ -120,6 +120,9 @@ class SemanticPointCloudAccumulator:
         sem_pc (np.array): Semantic point cloud as row vector matrix w. dim
                            (N, 8) [x, y, z, intensity, r, g, b, sem_idx]
 
+        sem_pcs (list)] [ sem_pc_1, sem_pc_2, ... ]
+        pooses (list): [ [x,y,z]_0, [x,y,z]_1, ... ]
+
         Args:
             observations: List of K tuples (rgb, pc)
         '''
@@ -130,6 +133,9 @@ class SemanticPointCloudAccumulator:
             else:
                 rgb, pc, _ = observations[obs_idx]
                 sem_pc, pose, semseg = self.obs2sem_vec_space(rgb, pc)
+
+            # Skip integrating when self-localization fails (discontinous path)
+
             self.sem_pcs.append(sem_pc)
             self.poses.append(pose)
             self.rgbs.append(rgb)
@@ -160,6 +166,15 @@ class SemanticPointCloudAccumulator:
 
                 print(f'    #pc {len(self.sem_pcs)} |',
                       f'path length {path_length:.2f}')
+
+        # Reset abs reference frame --> origin
+        abs_pose = np.array(self.poses[-1])
+        abs_pose_pc = np.array([self.poses[-1] + [0] * 5])  # (1, 8)
+
+        self.sem_pcs = [sem_pc - abs_pose_pc for sem_pc in self.sem_pcs]
+        self.poses = [list(np.array(pose) - abs_pose) for pose in self.poses]
+
+        self.T_prev_origin = np.eye(4)
 
     @staticmethod
     def comp_incr_path_dist(seg_dists: list):

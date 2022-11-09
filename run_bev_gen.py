@@ -165,8 +165,11 @@ if __name__ == '__main__':
         '2013_05_28_drive_0009_sync',
         '2013_05_28_drive_0010_sync',
     ]
-    start_idxs = [130, 4613, 40, 90, 50, 120, 0, 90, 0]
-    end_idxs = [11400, 18997, 770, 11530, 6660, 9698, 2960, 13945, 3540]
+    # start_idxs = [1000]
+    start_idxs = [0]
+    end_idxs = [2960]
+    # start_idxs = [130, 4613, 40, 90, 50, 120, 0, 90, 0]
+    # end_idxs = [11400, 18997, 770, 11530, 6660, 9698, 2960, 13945, 3540]
 
     dataloader = Kitti360Dataloader(kitti360_path, batch_size, sequences,
                                     start_idxs, end_idxs)
@@ -182,6 +185,29 @@ if __name__ == '__main__':
     for sample_idx, observations in enumerate(dataloader):
 
         sem_pc_accum.integrate(observations)
+
+        # Update last sampled 'abs pose' relative to 'ego pose' by
+        # incrementally applying each pose change associated with each
+        # observation
+        #
+        # NOTE Every step integrates #batch_size observations
+        #      ==> Pose change correspond to #batch_size poses
+        #
+        # Observations    1 2 3
+        #                 - - -
+        #                | | | |
+        # Indices        1 2 3 4
+        #
+        # The first iteration lacks first starting index
+        if len(sem_pc_accum.poses) > (batch_size + 1):
+            last_idx = batch_size
+        else:
+            last_idx = len(sem_pc_accum.poses) - 1
+        for idx in range(1, last_idx + 1):
+            pose_f = np.array(sem_pc_accum.poses[-idx])
+            pose_b = np.array(sem_pc_accum.poses[-idx - 1])
+            delta_pose = pose_f - pose_b
+            pose_0 -= delta_pose
 
         incr_path_dists = sem_pc_accum.get_incremental_path_dists()
 
