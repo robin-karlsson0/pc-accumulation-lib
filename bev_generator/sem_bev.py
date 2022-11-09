@@ -104,6 +104,9 @@ class SemBEVGenerator(BEVGenerator):
                 intmap_future_road = maps[4]
                 intmap_full_road = maps[5]
 
+        # Transform intensity map to more discriminative range
+        intmap_present_road = self.road_marking_transform(intmap_present_road)
+
         # Reduce storage size
         probmap_present_road = probmap_present_road.astype(np.float16)
         bev = {
@@ -113,6 +116,12 @@ class SemBEVGenerator(BEVGenerator):
         }
 
         if pc_future is not None:
+            # Transform intensity map to more discriminative range
+            intmap_future_road = self.road_marking_transform(
+                intmap_future_road)
+            intmap_full_road = self.road_marking_transform(intmap_full_road)
+
+            # Reduce storage size
             probmap_future_road = probmap_future_road.astype(np.float16)
             probmap_full_road = probmap_full_road.astype(np.float16)
             bev.update({
@@ -132,7 +141,6 @@ class SemBEVGenerator(BEVGenerator):
         present_road = bev['road_present']
         poses_present = bev['poses_present']
         present_intensity = bev['intensity_present']
-        present_intensity = self.road_marking_transform(present_intensity)
 
         H = self.pixel_size
 
@@ -147,9 +155,6 @@ class SemBEVGenerator(BEVGenerator):
             poses_full = bev['poses_full']
             future_intensity = bev['intensity_future']
             full_intensity = bev['intensity_full']
-
-            future_intensity = self.road_marking_transform(future_intensity)
-            full_intensity = self.road_marking_transform(full_intensity)
 
             size_per_fig = 6
             _ = plt.figure(figsize=(size_per_fig * num_cols,
