@@ -127,3 +127,9 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+.vscode
+bev_kitti360*
+bevs_*
+*.onnx
+*.gif

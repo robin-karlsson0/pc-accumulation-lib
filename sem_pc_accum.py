@@ -171,6 +171,7 @@ class SemanticPointCloudAccumulator:
         self.semsegs.append(semseg)
 
         # Compute path segment distance
+        idx = 0  # Default value for no removed observations
         if len(self.poses) > 1:
             seg_dist = self.dist(np.array(self.poses[-1]),
                                  np.array(self.poses[-2]))
@@ -195,6 +196,9 @@ class SemanticPointCloudAccumulator:
 
             print(f'    #pc {len(self.sem_pcs)} |',
                   f'path length {path_length:.2f}')
+
+        # Number of observations removed
+        return idx
 
     @staticmethod
     def comp_incr_path_dist(seg_dists: list):
