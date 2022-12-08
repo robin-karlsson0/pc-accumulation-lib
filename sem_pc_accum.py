@@ -132,7 +132,7 @@ class SemanticPointCloudAccumulator:
                 rgb, pc, sem_gt)
         else:
             rgb, pc, _ = observations[0]
-            sem_pc, pose, semseg = self.obs2sem_vec_space(rgb, pc)
+            sem_pc, pose, semseg, T_new_prev = self.obs2sem_vec_space(rgb, pc)
 
         if len(self.poses) > 0:
 
@@ -483,7 +483,19 @@ class SemanticPointCloudAccumulator:
         '''
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(sem_pc[:, :3])
-        rgb = sem_pc[:, 4:7]
+
+        sem = sem_pc[:, 7]
+        yellow = np.array([[253, 231, 36]])
+        blue = np.array([[68, 2, 85]])
+        N = sem.shape[0]
+        rgb = np.zeros((N, 3))
+        for idx in range(N):
+            if sem[idx] == 0:
+                rgb[idx] = yellow
+            else:
+                rgb[idx] = blue
+
+        # rgb = sem_pc[:, 4:7]
         rgb /= 255
         # rgb = np.tile(sem_pc[:, 4:5], (1, 3))
         # rgb /= np.max(rgb)
