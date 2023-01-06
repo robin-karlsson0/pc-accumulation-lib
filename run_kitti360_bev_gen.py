@@ -4,8 +4,8 @@ import os
 import numpy as np
 
 from datasets.kitti360_utils import get_camera_intrinsics, get_transf_matrices
+from kitti360_sem_pc_accum import Kitti360SemanticPointCloudAccumulator
 from obs_dataloaders.kitti360_obs_dataloader import Kitti360Dataloader
-from sem_pc_accum import SemanticPointCloudAccumulator
 
 
 def dist(pose_0: np.array, pose_1: np.array):
@@ -139,7 +139,7 @@ if __name__ == '__main__':
     viz_to_disk = True  # For debugging purposes
 
     # Initialize accumulator
-    sem_pc_accum = SemanticPointCloudAccumulator(
+    sem_pc_accum = Kitti360SemanticPointCloudAccumulator(
         args.accum_horizon_dist,
         calib_params,
         args.icp_threshold,

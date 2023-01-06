@@ -10,7 +10,6 @@ import PIL.Image as Image
 from bev_generator.rgb_bev import RGBBEVGenerator
 from bev_generator.sem_bev import SemBEVGenerator
 from utils.onnx_utils import SemSegONNX
-from utils.transformations import gen_semantic_pc
 
 
 class SemanticPointCloudAccumulator:
@@ -34,10 +33,9 @@ class SemanticPointCloudAccumulator:
 
     '''
 
-    def __init__(self, horizon_dist: float, calib_params: dict,
-                 icp_threshold: float, semseg_onnx_path: str,
-                 semseg_filters: list, sem_idxs: dict, use_gt_sem: bool,
-                 bev_params: dict):
+    def __init__(self, horizon_dist: float, icp_threshold: float,
+                 semseg_onnx_path: str, semseg_filters: list, sem_idxs: dict,
+                 use_gt_sem: bool, bev_params: dict):
         '''
         Args:
             calib_params: h_velo_cam: np.array,
@@ -59,11 +57,6 @@ class SemanticPointCloudAccumulator:
         self.semseg_filters = semseg_filters
         self.sem_idxs = sem_idxs
         self.use_gt_sem = use_gt_sem
-
-        # Calibration parameters
-        self.H_velo_cam = calib_params['h_velo_cam']
-        self.P_cam_frame = calib_params['p_cam_frame']
-        self.P_velo_frame = calib_params['p_velo_frame']
 
         self.icp_threshold = icp_threshold
 
@@ -223,77 +216,9 @@ class SemanticPointCloudAccumulator:
                           pc: np.array,
                           sem_gt: np.array = None) -> tuple:
         '''
-        Converts a new observation to a semantic point cloud in the common
-        vector space.
-
-        The function maintains the most recent pointcloud and transformation
-        for the next observation update.
-
-        Args:
-            rgb: RGB image.
-            pc: Point cloud as row vector matrix w. dim (N, 4)
-                [x, y, z, intensity]
-            sem_gt: Ground truth semantic class for each point (N, 1)
-                    If 'None' --> Compute semantics from image
-
-        Returns:
-            pc_velo_rgbsem (np.array): Semantic point cloud as row vector
-                                       matrix w. dim (N, 8)
-                                       [x, y, z, intensity, r, g, b, sem_idx]
-            pose (list): List with (x, y, z) coordinates as floats.
+        Abstract class
         '''
-        # Convert point cloud to Open3D format
-        pcd_new = self.pc2pcd(pc)
-        if self.pcd_prev is None:
-            self.pcd_prev = pcd_new
-
-        # Compute pose transformation T 'origin' --> 'current pc'
-        # Transform 'ego' --> 'abs' ref. frame
-        target = self.pcd_prev
-        source = pcd_new
-        reg_p2l = o3d.pipelines.registration.registration_icp(
-            target, source, self.icp_threshold, self.icp_trans_init,
-            o3d.pipelines.registration.TransformationEstimationPointToPlane())
-        T_new_prev = reg_p2l.transformation
-        T_new_origin = np.matmul(self.T_prev_origin, T_new_prev)
-
-        # Semantic point cloud
-        if sem_gt is None:
-            semseg = self.semseg_model.pred(rgb)[0, 0]
-            pc_velo_rgb = gen_semantic_pc(pc, np.array(rgb), self.P_velo_frame)
-            pc_velo_sem = gen_semantic_pc(pc, np.expand_dims(semseg, -1),
-                                          self.P_velo_frame)  # (N, 5)
-            pc_velo_rgbsem = np.concatenate((pc_velo_rgb, pc_velo_sem[:, -1:]),
-                                            axis=1)
-        else:
-            semseg = None
-            N = sem_gt.shape[0]
-            pc_velo_rgb = np.zeros((N, 3))
-            pc_velo_sem = sem_gt
-            pc_velo_rgbsem = np.concatenate(
-                (pc, pc_velo_rgb, pc_velo_sem[:, -1:]), axis=1)
-
-        # Transform point cloud 'ego --> abs' homogeneous coordinates
-        N = pc_velo_rgbsem.shape[0]
-        pc_velo_homo = np.concatenate((pc_velo_rgbsem[:, :3], np.ones((N, 1))),
-                                      axis=1)
-        # Replace spatial coordinates
-        pc_velo_rgbsem[:, :3] = pc_velo_homo[:, :3]
-
-        # Filter out unwanted points according to semantics
-        # TODO do this earlier to reduce computation?
-        pc_velo_rgbsem = self.filter_semseg_pc(pc_velo_rgbsem)
-
-        # Compute pose in 'absolute' coordinates
-        # Pose = Project origin in ego ref. frame --> abs
-        pose = np.array([[0., 0., 0., 1.]]).T
-        pose = pose.T[0][:-1]  # Remove homogeneous coordinate
-        pose = pose.tolist()
-
-        self.T_prev_origin = T_new_origin
-        self.pcd_prev = pcd_new
-
-        return pc_velo_rgbsem, pose, semseg, T_new_prev
+        raise NotImplementedError()
 
     def get_segment_dists(self) -> list:
         '''
@@ -449,6 +374,87 @@ class SemanticPointCloudAccumulator:
             mask = pc[:, -1] != filter
             pc = pc[mask]
         return pc
+
+    def gen_semantic_pc(self, pc_velo, semantic_map, P_velo_frame):
+        """
+        Returns a subset of points with semantic content from the semantic map.
+
+        Args:
+            P_velo_frame: np.array (3, 4) Velodyne coords --> Image frame coords.
+            semantic_map: np.array (h, w, k) w. K layers.
+
+        Returns:
+            pc_velo_sem: np.array (M, 4+K) [x, y, z, i, sem_1, ... , sem_K]
+        """
+        img_h, img_w, _ = semantic_map.shape
+
+        pc_velo_img = self.velo2img(pc_velo, P_velo_frame, img_h, img_w)
+
+        u = pc_velo_img[:, -2].astype(int)
+        v = pc_velo_img[:, -1].astype(int)
+
+        sem = semantic_map[v, u, :]
+
+        pc_velo_sem = np.concatenate([pc_velo_img[:, :4], sem], axis=1)
+
+        return pc_velo_sem
+
+    @staticmethod
+    def velo2frame(pc_velo, P_velo_frame):
+        """
+        Transforms point cloud from 'velodyne' to 'image frame' coordinates.
+
+        Args:
+            pc_velo: np.array (N, 3)
+            P_velo_frame: np.array (3, 4)
+        """
+        # Covnert point cloud to homogeneous coordinates
+        pc_num = pc_velo.shape[0]
+        pc_homo_velo = np.concatenate((pc_velo, np.ones((pc_num, 1))), axis=1)
+        pc_homo_velo = pc_homo_velo.T
+
+        # Transform point cloud 'velodyne' --> 'frame'
+        pc_homo_frame = np.matmul(P_velo_frame, pc_homo_velo)
+        pc_homo_frame = pc_homo_frame.T
+
+        return pc_homo_frame
+
+    def velo2img(self, pc_velo, P_velo_frame, img_h, img_w, max_depth=np.inf):
+        """
+        Compures image coordinates for points and returns the point cloud
+        contained in the image.
+
+        Args:
+            pc_velo: np.array (N, 4) [x, y, z, i]
+            P_velo_frame: np.array (3, 4)
+            img_h: int
+            img_w: int
+            max_depth: float
+
+        Returns:
+            pc_velo_frame: np.array (M, 6) [x, y, z, i, img_i, img_j]
+        """
+        pc_frame = self.velo2frame(pc_velo[:, :3], P_velo_frame)
+
+        depth = pc_frame[:, 2]
+        depth[depth == 0] = -1e-6
+        u = np.round(pc_frame[:, 0] / np.abs(depth)).astype(int)
+        v = np.round(pc_frame[:, 1] / np.abs(depth)).astype(int)
+
+        # Generate mask for points within image
+        mask = np.logical_and(
+            np.logical_and(np.logical_and(u >= 0, u < img_w), v >= 0),
+            v < img_h)
+        mask = np.logical_and(np.logical_and(mask, depth > 0),
+                              depth < max_depth)
+        # Convert to column vectors
+        u = u[:, np.newaxis]
+        v = v[:, np.newaxis]
+
+        pc_velo_img = np.concatenate([pc_velo, u, v], axis=1)
+        pc_velo_img = pc_velo_img[mask]
+
+        return pc_velo_img
 
     @staticmethod
     def dist(pose_0: np.array, pose_1: np.array):
