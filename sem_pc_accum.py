@@ -31,6 +31,33 @@ class SemanticPointCloudAccumulator:
         sem_pc_accum.integrate( [(rgb, pc), ... ] )
         TODO
 
+    Explanation how an 'observation' is integrated
+        NOTE: The structure of an 'observation' is platform dependent
+
+    1. Run the integration function
+           sem_pc_accum.integrate(observation)
+
+    2. Unpack 'observation' into a point cloud and RGB image(s)
+           rgbs = obs['images']
+           pc = obs['pc']
+
+    3. Transform 'observation' to semantic point cloud (sem_pc) in vector space
+           sem_pc, pose, semseg, T = obs2sem_vec_space(rgbs, pc)
+
+    4. Update relative pose of all stored poses and sem_pc:s
+           new_pose   := T_new_prev old_pose
+           new_sem_pc := T_new_prev old_sem_pc
+
+    5. Store new pose and sem_pc
+           ==> Latest ego pose (0, 0, 0)) and observations
+
+    6. Remove all old (pose, sem_pc) beyond "memory horizon"
+           if path_dist > thresh:
+               remove (pose, sem_pc)
+
+    7. Return the number of removed (pose, sem_pc) to allow book keeping
+       from calling code (e.g. computing distance between BEV generations)
+
     '''
 
     def __init__(self, horizon_dist: float, icp_threshold: float,
@@ -118,79 +145,62 @@ class SemanticPointCloudAccumulator:
         Args:
             observations: List of K tuples (rgb, pc)
         '''
-        if self.use_gt_sem:
-            rgb, pc, sem_gt = observations[0]
-            sem_pc, pose, semseg, T_new_prev = self.obs2sem_vec_space(
-                rgb, pc, sem_gt)
-        else:
-            rgb, pc, _ = observations[0]
-            sem_pc, pose, semseg, T_new_prev = self.obs2sem_vec_space(rgb, pc)
+        raise NotImplementedError()
 
-        if len(self.poses) > 0:
+    def update_poses(self, T_new_prev):
+        # Transform previous poses to new ego coordinate system
+        new_poses = []
+        for pose_ in self.poses:
+            # Homogeneous spatial coordinates
+            new_pose = np.matmul(T_new_prev, np.array([pose_ + [1]]).T)
+            new_pose = new_pose[:, 0][:-1]  # (4,1) --> (3)
+            new_pose = list(new_pose)
+            new_poses.append(new_pose)
+        self.poses = new_poses
 
-            # Transform previous poses to new ego coordinate system
-            new_poses = []
-            for pose_ in self.poses:
-                # Homogeneous spatial coordinates
-                new_pose = np.matmul(T_new_prev, np.array([pose_ + [1]]).T)
-                new_pose = new_pose[:, 0][:-1]  # (4,1) --> (3)
-                new_pose = list(new_pose)
-                new_poses.append(new_pose)
-            self.poses = new_poses
-
-            # Transform previous observations to new ego coordinate system
-            new_sem_pcs = []
-            for sem_pc_ in self.sem_pcs:
-                # Skip transforming empty point clouds
-                if sem_pc_.shape[0] == 0:
-                    new_sem_pcs.append(sem_pc_)
-                    continue
-                # Homogeneous spatial coordinates
-                N = sem_pc_.shape[0]
-                sem_pc_homo = np.concatenate((sem_pc_[:, :3], np.ones((N, 1))),
-                                             axis=1)
-                sem_pc_homo = np.matmul(T_new_prev, sem_pc_homo.T).T
-                # Replace spatial coordinates
-                sem_pc_[:, :3] = sem_pc_homo[:, :3]
+    def update_sem_pcs(self, T_new_prev):
+        # Transform previous observations to new ego coordinate system
+        new_sem_pcs = []
+        for sem_pc_ in self.sem_pcs:
+            # Skip transforming empty point clouds
+            if sem_pc_.shape[0] == 0:
                 new_sem_pcs.append(sem_pc_)
-            self.sem_pcs = new_sem_pcs
+                continue
+            # Homogeneous spatial coordinates
+            N = sem_pc_.shape[0]
+            sem_pc_homo = np.concatenate((sem_pc_[:, :3], np.ones((N, 1))),
+                                         axis=1)
+            sem_pc_homo = np.matmul(T_new_prev, sem_pc_homo.T).T
+            # Replace spatial coordinates
+            sem_pc_[:, :3] = sem_pc_homo[:, :3]
+            new_sem_pcs.append(sem_pc_)
+        self.sem_pcs = new_sem_pcs
 
-        # TODO Skip integrating when self-localization fails (discontinous path)
-
-        self.sem_pcs.append(sem_pc)
-        self.poses.append(pose)
-        self.rgbs.append(rgb)
-        self.semsegs.append(semseg)
-
-        # Compute path segment distance
+    def remove_observations(self):
         idx = 0  # Default value for no removed observations
-        if len(self.poses) > 1:
-            seg_dist = self.dist(np.array(self.poses[-1]),
-                                 np.array(self.poses[-2]))
-            self.seg_dists.append(seg_dist)
+        # Compute path segment distance
+        seg_dist = self.dist(np.array(self.poses[-1]),
+                             np.array(self.poses[-2]))
+        self.seg_dists.append(seg_dist)
 
-            path_length = np.sum(self.seg_dists)
+        path_length = np.sum(self.seg_dists)
 
-            if path_length > self.horizon_dist:
-                # Incremental path distance starting from zero
-                incr_path_dists = self.get_incremental_path_dists()
-                # Elements beyond horizon distance become negative
-                overshoot = path_length - self.horizon_dist
-                incr_path_dists -= overshoot
-                # Find first non-negative element index ==> Within horizon
-                idx = (incr_path_dists > 0.).argmax()
-                # Remove elements before 'idx' as they are outside horizon
-                self.sem_pcs = self.sem_pcs[idx:]
-                self.poses = self.poses[idx:]
-                self.seg_dists = self.seg_dists[idx:]
-                self.rgbs = self.rgbs[idx:]
-                self.semsegs = self.semsegs[idx:]
+        if path_length > self.horizon_dist:
+            # Incremental path distance starting from zero
+            incr_path_dists = self.get_incremental_path_dists()
+            # Elements beyond horizon distance become negative
+            overshoot = path_length - self.horizon_dist
+            incr_path_dists -= overshoot
+            # Find first non-negative element index ==> Within horizon
+            idx = (incr_path_dists > 0.).argmax()
+            # Remove elements before 'idx' as they are outside horizon
+            self.sem_pcs = self.sem_pcs[idx:]
+            self.poses = self.poses[idx:]
+            self.seg_dists = self.seg_dists[idx:]
+            self.rgbs = self.rgbs[idx:]
+            self.semsegs = self.semsegs[idx:]
 
-            print(f'    #pc {len(self.sem_pcs)} |',
-                  f'path length {path_length:.2f}')
-
-        # Number of observations removed
-        return idx
+        return idx, path_length
 
     @staticmethod
     def comp_incr_path_dist(seg_dists: list):

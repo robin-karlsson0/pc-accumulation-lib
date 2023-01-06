@@ -53,65 +53,20 @@ class NuScenesSemanticPointCloudAccumulator(SemanticPointCloudAccumulator):
         sem_pc, pose, semsegs, T_new_prev = self.obs2sem_vec_space(
             rgbs, pc, pc_cam_idx)
 
+        # Transform previous poses and sem_pcs to new ego coordinate system
         if len(self.poses) > 0:
-
-            # Transform previous poses to new ego coordinate system
-            new_poses = []
-            for pose_ in self.poses:
-                # Homogeneous spatial coordinates
-                new_pose = np.matmul(T_new_prev, np.array([pose_ + [1]]).T)
-                new_pose = new_pose[:, 0][:-1]  # (4,1) --> (3)
-                new_pose = list(new_pose)
-                new_poses.append(new_pose)
-            self.poses = new_poses
-
-            # Transform previous observations to new ego coordinate system
-            new_sem_pcs = []
-            for sem_pc_ in self.sem_pcs:
-                # Skip transforming empty point clouds
-                if sem_pc_.shape[0] == 0:
-                    new_sem_pcs.append(sem_pc_)
-                    continue
-                # Homogeneous spatial coordinates
-                N = sem_pc_.shape[0]
-                sem_pc_homo = np.concatenate((sem_pc_[:, :3], np.ones((N, 1))),
-                                             axis=1)
-                sem_pc_homo = np.matmul(T_new_prev, sem_pc_homo.T).T
-                # Replace spatial coordinates
-                sem_pc_[:, :3] = sem_pc_homo[:, :3]
-                new_sem_pcs.append(sem_pc_)
-            self.sem_pcs = new_sem_pcs
-
-        # TODO Skip integrating when self-localization fails (discontinous path)
+            self.update_poses(T_new_prev)
+            self.update_sem_pcs(T_new_prev)
 
         self.sem_pcs.append(sem_pc)
         self.poses.append(pose)
         self.rgbs.append(rgbs)
         self.semsegs.append(semsegs)
 
-        # Compute path segment distance
+        # Remove observations beyond "memory horizon"
         idx = 0  # Default value for no removed observations
         if len(self.poses) > 1:
-            seg_dist = self.dist(np.array(self.poses[-1]),
-                                 np.array(self.poses[-2]))
-            self.seg_dists.append(seg_dist)
-
-            path_length = np.sum(self.seg_dists)
-
-            if path_length > self.horizon_dist:
-                # Incremental path distance starting from zero
-                incr_path_dists = self.get_incremental_path_dists()
-                # Elements beyond horizon distance become negative
-                overshoot = path_length - self.horizon_dist
-                incr_path_dists -= overshoot
-                # Find first non-negative element index ==> Within horizon
-                idx = (incr_path_dists > 0.).argmax()
-                # Remove elements before 'idx' as they are outside horizon
-                self.sem_pcs = self.sem_pcs[idx:]
-                self.poses = self.poses[idx:]
-                self.seg_dists = self.seg_dists[idx:]
-                self.rgbs = self.rgbs[idx:]
-                self.semsegs = self.semsegs[idx:]
+            idx, path_length = self.remove_observations()
 
             print(f'    #pc {len(self.sem_pcs)} |',
                   f'path length {path_length:.2f}')
