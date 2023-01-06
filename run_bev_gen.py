@@ -43,6 +43,7 @@ if __name__ == '__main__':
                         type=float,
                         default=300,
                         help='From front to back')
+    parser.add_argument('--use_gt_sem', action="store_true")
     # BEV parameters
     parser.add_argument('--bev_output_dir', type=str, default='bevs')
     parser.add_argument('--bevs_per_sample', type=int, default=1)
@@ -93,7 +94,8 @@ if __name__ == '__main__':
     # 16 : Train
     # 17 : Motorcycle
     # 18 : Bicycle
-    filters = [10, 11, 12, 16, 18]
+    # 255: Ignore
+    filters = [10, 11, 12, 16, 18, 255]
     sem_idxs = {'road': 0, 'car': 13, 'truck': 14, 'bus': 15, 'motorcycle': 17}
 
     ######################
@@ -144,13 +146,14 @@ if __name__ == '__main__':
         args.semseg_onnx_path,
         filters,
         sem_idxs,
+        args.use_gt_sem,
         bev_params,
     )
 
     #################
     #  Sample data
     #################
-    batch_size = args.accum_batch_size
+    batch_size = 1  # args.accum_batch_size
     sequences = [
         '2013_05_28_drive_0000_sync',
         '2013_05_28_drive_0002_sync',
@@ -162,7 +165,7 @@ if __name__ == '__main__':
         '2013_05_28_drive_0009_sync',
         '2013_05_28_drive_0010_sync',
     ]
-    start_idxs = [130 + 500, 4613, 40, 90, 50, 120, 0, 90, 0]
+    start_idxs = [130, 4613, 40, 90, 50, 120, 0, 90, 0]
     end_idxs = [11400, 18997, 770, 11530, 6660, 9698, 2960, 13945, 3540]
 
     dataloader = Kitti360Dataloader(kitti360_path, batch_size, sequences,
@@ -175,10 +178,40 @@ if __name__ == '__main__':
     subdir_idx = 0
     bev_count = 0
 
-    pose_0 = np.zeros(3)
+    previous_idx = 0
     for sample_idx, observations in enumerate(dataloader):
 
-        sem_pc_accum.integrate(observations)
+        # Number of observations removed from memory (used for pose diff.)
+        num_obs_removed = sem_pc_accum.integrate(observations)
+
+        # print(f'    num_obs_removed {num_obs_removed}')
+
+        # Update last sampled 'abs pose' relative to 'ego pose' by
+        # incrementally applying each pose change associated with each
+        # observation
+        #
+        # NOTE Every step integrates #batch_size observations
+        #      ==> Pose change correspond to #batch_size poses
+        #
+        # Observations    1 2 3
+        #                 - - -
+        #                | | | |
+        # Indices        1 2 3 4
+        #
+        # The first iteration lacks first starting index
+        # if len(sem_pc_accum.poses) > (batch_size + 1):
+        #     last_idx = batch_size
+        # else:
+        #     last_idx = len(sem_pc_accum.poses) - 1
+        # for idx in range(1, last_idx + 1):
+        #     pose_f = np.array(sem_pc_accum.poses[-idx])
+        #     pose_b = np.array(sem_pc_accum.poses[-idx - 1])
+        #     delta_pose = pose_f - pose_b
+        #     pose_0 -= delta_pose
+        previous_idx -= num_obs_removed
+
+        if len(sem_pc_accum.poses) < 2:
+            continue
 
         incr_path_dists = sem_pc_accum.get_incremental_path_dists()
 
@@ -196,11 +229,13 @@ if __name__ == '__main__':
             continue
 
         # Condition (3): Sufficient distance from previous sample
+        pose_0 = sem_pc_accum.get_pose(previous_idx)
         pose_1 = sem_pc_accum.get_pose(present_idx)
         dist_pose_1_2 = dist(pose_0, pose_1)
+
         if dist_pose_1_2 < bev_dist_between_samples:
             continue
-        pose_0 = pose_1
+        previous_idx = present_idx
 
         print(
             f'{sample_idx*batch_size} | {bev_count} |',
@@ -216,10 +251,10 @@ if __name__ == '__main__':
         for bev in bevs:
 
             # Store BEV samples
-            if bev_idx > 1000:
+            if bev_idx >= 1000:
                 bev_idx = 0
                 subdir_idx += 1
-            filename = f'bev_{bev_idx}.pkl'
+            filename = f'bev_{bev_idx:03d}.pkl'
             output_path = f'./{savedir}/subdir{subdir_idx:03d}/'
 
             if not os.path.isdir(output_path):
@@ -229,7 +264,7 @@ if __name__ == '__main__':
 
             # Visualize BEV samples
             if viz_to_disk:
-                viz_file = os.path.join(output_path, f'viz_{bev_idx}.png')
+                viz_file = os.path.join(output_path, f'viz_{bev_idx:03d}.png')
                 sem_pc_accum.viz_bev(bev, viz_file, rgbs, semsegs)
 
             bev_idx += 1
