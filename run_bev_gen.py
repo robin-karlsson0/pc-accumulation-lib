@@ -235,7 +235,6 @@ if __name__ == '__main__':
 
         if dist_pose_1_2 < bev_dist_between_samples:
             continue
-        # pose_0 = pose_1
         previous_idx = present_idx
 
         print(
