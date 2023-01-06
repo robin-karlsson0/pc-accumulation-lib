@@ -17,13 +17,17 @@ class SemBEVGenerator(BEVGenerator):
                  pixel_size: int,
                  max_trans_radius: float = 0.,
                  zoom_thresh: float = 0.,
-                 do_warp: bool = False):
+                 do_warp: bool = False,
+                 int_scaler: float = 1.,
+                 int_sep_scaler: float = 1.,
+                 int_mid_threshold: float = 0.5):
         '''
         Args:
             sem_layers: ['road', 'intensity', 'elevation'] etc.
         '''
         super().__init__(view_size, pixel_size, max_trans_radius, zoom_thresh,
-                         do_warp)
+                         do_warp, int_scaler, int_sep_scaler,
+                         int_mid_threshold)
 
         # Dictionary with semantic --> index mapping
         self.sem_idxs = sem_idxs
@@ -110,7 +114,9 @@ class SemBEVGenerator(BEVGenerator):
                 intmap_full_road = maps[5]
 
         # Transform intensity map to more discriminative range
-        intmap_present_road = self.road_marking_transform(intmap_present_road)
+        intmap_present_road = self.road_marking_transform(
+            intmap_present_road, self.int_scaler, self.int_sep_scaler,
+            self.int_mid_threshold)
 
         # Reduce storage size
         probmap_present_road = probmap_present_road.astype(np.float16)
@@ -123,8 +129,11 @@ class SemBEVGenerator(BEVGenerator):
         if pc_future is not None:
             # Transform intensity map to more discriminative range
             intmap_future_road = self.road_marking_transform(
-                intmap_future_road)
-            intmap_full_road = self.road_marking_transform(intmap_full_road)
+                intmap_future_road, self.int_scaler, self.int_sep_scaler,
+                self.int_mid_threshold)
+            intmap_full_road = self.road_marking_transform(
+                intmap_full_road, self.int_scaler, self.int_sep_scaler,
+                self.int_mid_threshold)
 
             # Reduce storage size
             probmap_future_road = probmap_future_road.astype(np.float16)
@@ -215,14 +224,22 @@ class SemBEVGenerator(BEVGenerator):
         plt.clf()
         plt.close()
 
-    def road_marking_transform(self, intensity_map):
+    def road_marking_transform(self, intensity_map: np.array,
+                               int_scaler: float, int_sep_scaler: float,
+                               int_mid_threshold: float):
         '''
+        KITTI-360
+            int_scaler = 20
+            int_sep_scaler = 20
+            int_mid_threshold = 0.5
+        NuScenes
+            int_scaler = 1
+            int_sep_scaler = 30
+            int_mid_threshold = 0.12
+
         Args:
             intensity_map: Value interval (0, 1)
         '''
-        int_scaler = 20
-        int_sep_scaler = 20
-        int_mid_threshold = 0.5
         intensity_map = int_scaler * self.sigmoid(
             int_sep_scaler * (intensity_map - int_mid_threshold))
         # Normalization

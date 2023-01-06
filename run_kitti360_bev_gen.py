@@ -63,6 +63,9 @@ if __name__ == '__main__':
     parser.add_argument('--bev_max_trans_radius', type=float, default=0)
     parser.add_argument('--bev_zoom_thresh', type=float, default=0)
     parser.add_argument('--bev_do_warp', action="store_true")
+    parser.add_argument('--int_scaler', type=float, default=1.)
+    parser.add_argument('--int_sep_scaler', type=float, default=1.)
+    parser.add_argument('--int_mid_threshold', type=float, default=0.5)
     # ICP parameters
     parser.add_argument('--icp_threshold', type=float, default=1e3)
 
@@ -128,6 +131,9 @@ if __name__ == '__main__':
         'max_trans_radius': args.bev_max_trans_radius,  # 10,
         'zoom_thresh': args.bev_zoom_thresh,  # 0.10,
         'do_warp': args.bev_do_warp,
+        'int_scaler': args.int_scaler,
+        'int_sep_scaler': args.int_sep_scaler,
+        'int_mid_threshold': args.int_mid_threshold,
     }
 
     savedir = args.bev_output_dir

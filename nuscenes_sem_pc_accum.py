@@ -145,7 +145,8 @@ class NuScenesSemanticPointCloudAccumulator(SemanticPointCloudAccumulator):
         pc, pc_rgb_sem = pc[mask_valid], pc_rgb_sem[mask_valid]
 
         pc_xyz = pc[:, :3]
-        pc_intensity = pc[:, 3:4]
+        # Normalized point cloud intensity
+        pc_intensity = pc[:, 3:4] / 255.
         pc_velo_rgbsem = np.concatenate([pc_xyz, pc_intensity, pc_rgb_sem],
                                         axis=1)  # (N, 8)
 

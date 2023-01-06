@@ -114,6 +114,9 @@ class SemanticPointCloudAccumulator:
                 bev_params['max_trans_radius'],
                 bev_params['zoom_thresh'],
                 bev_params['do_warp'],
+                bev_params['int_scaler'],
+                bev_params['int_sep_scaler'],
+                bev_params['int_mid_threshold'],
             )
         elif bev_params['type'] == 'rgb':
             self.sem_bev_generator = RGBBEVGenerator(
@@ -123,6 +126,9 @@ class SemanticPointCloudAccumulator:
                 bev_params['max_trans_radius'],
                 bev_params['zoom_thresh'],
                 bev_params['do_warp'],
+                bev_params['int_scaler'],
+                bev_params['int_sep_scaler'],
+                bev_params['int_mid_threshold'],
             )
 
     def integrate(self, observations: list):

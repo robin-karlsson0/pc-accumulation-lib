@@ -16,7 +16,10 @@ class BEVGenerator(ABC):
                  pixel_size: int,
                  max_trans_radius: float = 0.,
                  zoom_thresh: float = 0.,
-                 do_warp: bool = False):
+                 do_warp: bool = False,
+                 int_scaler: float = 1.,
+                 int_sep_scaler: float = 1.,
+                 int_mid_threshold: float = 0.5):
         '''
         '''
         # View frame size in [m]
@@ -32,6 +35,10 @@ class BEVGenerator(ABC):
             self.do_aug = True
         else:
             self.do_aug = False
+
+        self.int_scaler = int_scaler
+        self.int_sep_scaler = int_sep_scaler
+        self.int_mid_threshold = int_mid_threshold
 
         # print("NOTE: Removes points above ego-vehicle height!")
 
