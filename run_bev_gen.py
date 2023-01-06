@@ -165,11 +165,8 @@ if __name__ == '__main__':
         '2013_05_28_drive_0009_sync',
         '2013_05_28_drive_0010_sync',
     ]
-    # start_idxs = [1000]
-    start_idxs = [0]
-    end_idxs = [2960]
-    # start_idxs = [130, 4613, 40, 90, 50, 120, 0, 90, 0]
-    # end_idxs = [11400, 18997, 770, 11530, 6660, 9698, 2960, 13945, 3540]
+    start_idxs = [130, 4613, 40, 90, 50, 120, 0, 90, 0]
+    end_idxs = [11400, 18997, 770, 11530, 6660, 9698, 2960, 13945, 3540]
 
     dataloader = Kitti360Dataloader(kitti360_path, batch_size, sequences,
                                     start_idxs, end_idxs)
@@ -181,11 +178,9 @@ if __name__ == '__main__':
     subdir_idx = 0
     bev_count = 0
 
-    # pose_0 = np.zeros(3)
     previous_idx = 0
     for sample_idx, observations in enumerate(dataloader):
 
-        # print(f'sample_idx {sample_idx}')
         # Number of observations removed from memory (used for pose diff.)
         num_obs_removed = sem_pc_accum.integrate(observations)
 
@@ -204,25 +199,21 @@ if __name__ == '__main__':
         # Indices        1 2 3 4
         #
         # The first iteration lacks first starting index
-        #if len(sem_pc_accum.poses) > (batch_size + 1):
-        #    last_idx = batch_size
-        #else:
-        #    last_idx = len(sem_pc_accum.poses) - 1
-        #for idx in range(1, last_idx + 1):
-        #    pose_f = np.array(sem_pc_accum.poses[-idx])
-        #    pose_b = np.array(sem_pc_accum.poses[-idx - 1])
-        #    delta_pose = pose_f - pose_b
-        #    pose_0 -= delta_pose
+        # if len(sem_pc_accum.poses) > (batch_size + 1):
+        #     last_idx = batch_size
+        # else:
+        #     last_idx = len(sem_pc_accum.poses) - 1
+        # for idx in range(1, last_idx + 1):
+        #     pose_f = np.array(sem_pc_accum.poses[-idx])
+        #     pose_b = np.array(sem_pc_accum.poses[-idx - 1])
+        #     delta_pose = pose_f - pose_b
+        #     pose_0 -= delta_pose
         previous_idx -= num_obs_removed
-
-        # print(f'    previous_idx {previous_idx}')
 
         if len(sem_pc_accum.poses) < 2:
             continue
 
         incr_path_dists = sem_pc_accum.get_incremental_path_dists()
-
-        # print(f'    incr_path_dist {incr_path_dists[-1]:.2f}')
 
         # Condition (1): Sufficient distance to backward horizon
         if incr_path_dists[-1] < bev_horizon_dist:
@@ -232,11 +223,8 @@ if __name__ == '__main__':
         dists = (incr_path_dists - bev_horizon_dist)
         present_idx = (dists > 0).argmax()
 
-        # print(f'    present_idx {present_idx}')
-
         # Condition (2): Sufficient distance from present to future horizon
         fut_dist = incr_path_dists[-1] - incr_path_dists[present_idx]
-        # print(f'    fut_dist {fut_dist:.2f}')
         if fut_dist < bev_horizon_dist:
             continue
 
@@ -244,11 +232,7 @@ if __name__ == '__main__':
         pose_0 = sem_pc_accum.get_pose(previous_idx)
         pose_1 = sem_pc_accum.get_pose(present_idx)
         dist_pose_1_2 = dist(pose_0, pose_1)
-        # print(f'    pose_0 {pose_0}')
-        # print(f'    pose_1 {pose_1}')
-        # print(
-        #     f'    dist_pose_1_2 {dist_pose_1_2} ({dist_pose_1_2 < bev_dist_between_samples})'
-        # )
+
         if dist_pose_1_2 < bev_dist_between_samples:
             continue
         # pose_0 = pose_1
