@@ -87,8 +87,8 @@ class NuScenesSemanticPointCloudAccumulator(SemanticPointCloudAccumulator):
 
         Args:
             rgbs: List of RGB images (PIL)
-            pc: Point cloud as row vector matrix w. dim (N, 6)
-                [x, y, z, pixel_u, pixel_v, time-lag w.r.t keyframe]
+            pc: Point cloud as row vector matrix w. dim (N, 7)
+                [x, y, z, int, pixel_u, pixel_v, time-lag w.r.t keyframe]
             pc_cam_idx: Index of camera where each point projected onto
             pose_z_orgin (int): Move origin above ground level.
 
@@ -126,7 +126,7 @@ class NuScenesSemanticPointCloudAccumulator(SemanticPointCloudAccumulator):
 
             mask_in_rgb = (pc_cam_idx == cam_idx)
             pc_rgb_sem[mask_in_rgb] = pts_feat_from_img(
-                pc[mask_in_rgb, 3:5],
+                pc[mask_in_rgb, 4:6],
                 np.concatenate([rgb, np.expand_dims(semseg, -1)], axis=2),
                 'nearest')
 
@@ -145,7 +145,7 @@ class NuScenesSemanticPointCloudAccumulator(SemanticPointCloudAccumulator):
         pc, pc_rgb_sem = pc[mask_valid], pc_rgb_sem[mask_valid]
 
         pc_xyz = pc[:, :3]
-        pc_intensity = np.zeros((pc.shape[0], 1), dtype=float)
+        pc_intensity = pc[:, 3:4]
         pc_velo_rgbsem = np.concatenate([pc_xyz, pc_intensity, pc_rgb_sem],
                                         axis=1)  # (N, 8)
 

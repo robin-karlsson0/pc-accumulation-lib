@@ -1,8 +1,8 @@
 import numpy as np
-from datasets.nuscenes_utils import (NuScenesCamera, NuScenesLidar,
-                                     homo_transform)
 from nuscenes.nuscenes import NuScenes
 
+from datasets.nuscenes_utils import (NuScenesCamera, NuScenesLidar,
+                                     homo_transform)
 from obs_dataloaders.obs_dataloader import ObservationDataloader
 
 
@@ -104,10 +104,14 @@ class NuScenesDataloader(ObservationDataloader):
             pc_uv[mask_in_img] = uv[mask_in_img]
             pc_cam_idx[mask_in_img] = j
 
+        # Intensity
+        pc_int = pc[:, 3:4]
+
         obs['pc_cam_idx'] = pc_cam_idx
         if pc_time is not None:
-            obs['pc'] = np.concatenate([pc_in_ego, pc_uv, pc_time], axis=1)
+            obs['pc'] = np.concatenate([pc_in_ego, pc_int, pc_uv, pc_time],
+                                       axis=1)
         else:
-            obs['pc'] = np.concatenate([pc_in_ego, pc_uv], axis=1)
+            obs['pc'] = np.concatenate([pc_in_ego, pc_int, pc_uv], axis=1)
 
         return obs

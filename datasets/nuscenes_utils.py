@@ -122,7 +122,8 @@ class NuScenesLidar(NuScenesSensor):
             sample_record (dict): record of the entire keyframe
             num_sweeps (int): < 10
         Returns:
-            pc (np.ndarray): (N, 3 (+1)) - X, Y, Z in LiDAR frame (and time lag w.r.t timestamp of keyframe)
+            pc (np.ndarray): (N, 4 (+1))
+                [X, Y, Z in LiDAR frame, intensity, time lag w.r.t timestamp of keyframe]
         """
         if num_sweeps is not None:
             assert sample_record is not None
@@ -133,15 +134,15 @@ class NuScenesLidar(NuScenesSensor):
                 'LIDAR_TOP',
                 'LIDAR_TOP',
                 nsweeps=num_sweeps)
-            out = np.vstack([pc.points[:3, :], times])  # (4, N)
-            return out.T  # (N, 4)
+            out = np.vstack([pc.points[:4, :], times])  # (5, N)
+            return out.T  # (N, 5)
         else:
             lidar_record = nusc.get('sample_data',
                                     sample_record['data']['LIDAR_TOP'])
             pc = LidarPointCloud.from_file(
                 osp.join(nusc.dataroot,
                          lidar_record['filename']))  # pc is in LIDAR frame
-            return pc.points[:3, :].T  # (N, 3) - X, Y, Z in LIDAR_TOP frame
+            return pc.points[:4, :].T  # (N, 4) - X, Y, Z in LIDAR_TOP frame
 
 
 def pts_feat_from_img(pts_uv, img, method='bilinear'):
