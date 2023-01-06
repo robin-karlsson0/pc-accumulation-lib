@@ -255,7 +255,7 @@ if __name__ == '__main__':
             if bev_idx >= 1000:
                 bev_idx = 0
                 subdir_idx += 1
-            filename = f'bev_{bev_idx}.pkl'
+            filename = f'bev_{bev_idx:03d}.pkl'
             output_path = f'./{savedir}/subdir{subdir_idx:03d}/'
 
             if not os.path.isdir(output_path):
@@ -265,7 +265,7 @@ if __name__ == '__main__':
 
             # Visualize BEV samples
             if viz_to_disk:
-                viz_file = os.path.join(output_path, f'viz_{bev_idx}.png')
+                viz_file = os.path.join(output_path, f'viz_{bev_idx:03d}.png')
                 sem_pc_accum.viz_bev(bev, viz_file, rgbs, semsegs)
 
             bev_idx += 1
