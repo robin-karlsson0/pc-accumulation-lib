@@ -232,7 +232,7 @@ class SemanticPointCloudAccumulator:
 
         Args:
             rgb: RGB image.
-            pc: Point cloud as row vector matrix w. dim (N, 8)
+            pc: Point cloud as row vector matrix w. dim (N, 4)
                 [x, y, z, intensity]
             sem_gt: Ground truth semantic class for each point (N, 1)
                     If 'None' --> Compute semantics from image
