@@ -283,7 +283,7 @@ class SemanticPointCloudAccumulator:
 
         # Filter out unwanted points according to semantics
         # TODO do this earlier to reduce computation?
-        # pc_velo_rgbsem = self.filter_semseg_pc(pc_velo_rgbsem, )
+        pc_velo_rgbsem = self.filter_semseg_pc(pc_velo_rgbsem)
 
         # Compute pose in 'absolute' coordinates
         # Pose = Project origin in ego ref. frame --> abs
