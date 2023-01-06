@@ -12,6 +12,33 @@ def read_pc_bin_file(path):
     return pc
 
 
+def read_sem_gt_bin_file(path):
+    """
+    Ref: https://github.com/JulesSanchez/recoverKITTI360label/issues/4
+    """
+    if os.path.isfile(path):
+        sem_gt = np.fromfile(path, dtype=np.int16)
+        sem_gt = np.expand_dims(sem_gt, axis=1)
+    else:
+        sem_gt = None
+    return sem_gt
+
+
+def conv_semantic_ids(sem_gt: np.array, idx2idx: dict):
+    '''
+    Returns a new array with updated indices.
+
+    Args:
+        sem_gt: Semantic class idx for each point (N, 1)
+        idx2idx: Dict with key, value pairs (old_idx, new_idx)
+                 idx2idx[old_idx] --> new_idx
+    '''
+    for old_idx, new_idx in idx2idx.items():
+        mask = sem_gt[:, 0] == old_idx
+        sem_gt[mask] = new_idx
+    return sem_gt
+
+
 def filter_semseg_pc(pc, filters):
     for filter in filters:
         mask = pc[:, -1] != filter

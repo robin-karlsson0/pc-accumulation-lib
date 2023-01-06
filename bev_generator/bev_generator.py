@@ -15,7 +15,8 @@ class BEVGenerator(ABC):
                  view_size: int,
                  pixel_size: int,
                  max_trans_radius: float = 0.,
-                 zoom_thresh: float = 0.):
+                 zoom_thresh: float = 0.,
+                 do_warp: bool = False):
         '''
         '''
         # View frame size in [m]
@@ -26,18 +27,17 @@ class BEVGenerator(ABC):
         # Random augmentation parameters
         self.max_trans_radius = max_trans_radius
         self.zoom_thresh = zoom_thresh
+        self.do_warp = do_warp
         if self.max_trans_radius > 0. or self.zoom_thresh > 0.:
             self.do_aug = True
         else:
             self.do_aug = False
 
+        # print("NOTE: Removes points above ego-vehicle height!")
+
     @abstractmethod
-    def generate_bev(self,
-                     pc_present: np.array,
-                     pc_future: np.array,
-                     poses_present: np.array,
-                     poses_future: np.array,
-                     do_warping: bool = False):
+    def generate_bev(self, pc_present: np.array, pc_future: np.array,
+                     poses_present: np.array, poses_future: np.array):
         '''
         Implement this function to generate actual BEV representations from the
         preprocessed semantic point cloud and poses.
@@ -55,10 +55,18 @@ class BEVGenerator(ABC):
         '''
         '''
         # Extract semantic point cloud and pose information
-        pc_present, pc_future = self.extract_pc_dict(pcs)
-        poses_present, poses_future = self.extract_pose_dict(poses)
+        pc_present, pc_future, pc_full = self.extract_pc_dict(pcs)
+        poses_present, poses_future, poses_full = self.extract_pose_dict(poses)
 
         aug_view_size = zoom_scalar * self.view_size
+
+        if do_warping is False:
+            rot_ang = 0.5 * np.pi
+            if len(poses_present) > 1:
+                dx = poses_present[-1][0] - poses_present[-2][0]
+                dy = poses_present[-1][1] - poses_present[-2][1]
+                rot_ang += np.arctan2(dy, dx)
+            rot_ang = np.pi - rot_ang
 
         pc_present, poses_present = self.preprocess_pc_and_poses(
             pc_present, poses_present, rot_ang, trans_dx, trans_dy,
@@ -69,8 +77,12 @@ class BEVGenerator(ABC):
                 pc_future, poses_future, rot_ang, trans_dx, trans_dy,
                 aug_view_size)
 
-        bev = self.generate_bev(pc_present, pc_future, poses_present,
-                                poses_future, do_warping)
+            pc_full, poses_full = self.preprocess_pc_and_poses(
+                pc_full, poses_full, rot_ang, trans_dx, trans_dy,
+                aug_view_size)
+
+        bev = self.generate_bev(pc_present, pc_future, pc_full, poses_present,
+                                poses_future, poses_full)
 
         return bev
 
@@ -84,6 +96,10 @@ class BEVGenerator(ABC):
                                       aug_view_size)
         poses = self.geometric_transform(poses, rot_ang, trans_dx, trans_dy,
                                          aug_view_size)
+
+        # Remove points above ego-vehicle height (for bridges, tunnels etc.)
+        # mask = pc[:, 2] < 1.
+        # pc = pc[mask]
 
         # Metric to pixel coordinates
         pc = self.pos2grid(pc, aug_view_size)
@@ -199,6 +215,27 @@ class BEVGenerator(ABC):
 
         return probmap_sem
 
+    def gen_intensity_map(self, pc: np.array, sem_cls: str):
+        '''
+        Generates a normalized intensity map from points belonging to a
+        semantic class.
+
+        Args:
+            pc: dim (N, M) [x, y, z, i, ... ].
+        '''
+        sem_idxs = [self.sem_idxs[sem_cls]]
+        # Partition point cloud into 'semantic' and 'non-semantic' components
+        pc_sem, _ = self.partition_semantic_pc(pc, sem_idxs)
+
+        pc_int = pc_sem[:, 3]
+        gridmap_int_sum = self.gen_gridmap_count_map(pc_sem, weights=pc_int)
+        gridmap_count = self.gen_gridmap_count_map(pc_sem)
+
+        # Summed intensity --> average intensity
+        gridmap_int = gridmap_int_sum / (gridmap_count + 1)
+
+        return gridmap_int
+
     @staticmethod
     def partition_semantic_pc(pc_mat: np.array, sems: list) -> np.array:
         '''
@@ -218,7 +255,9 @@ class BEVGenerator(ABC):
 
         return pc_sem, pc_notsem
 
-    def gen_gridmap_count_map(self, pc: np.array) -> np.array:
+    def gen_gridmap_count_map(self,
+                              pc: np.array,
+                              weights: np.array = None) -> np.array:
         '''
         Generates a gridmap with number of points in each grid element.
         '''
@@ -227,7 +266,8 @@ class BEVGenerator(ABC):
             ij[:, 1],
             ij[:, 0],
             range=[[0, self.pixel_size], [0, self.pixel_size]],
-            bins=[self.pixel_size, self.pixel_size])
+            bins=[self.pixel_size, self.pixel_size],
+            weights=weights)
 
         # Image to Cartesian coordinate axis direction
         gridmap_counts = np.flip(gridmap_counts, axis=0)
@@ -466,13 +506,15 @@ class BEVGenerator(ABC):
     def extract_pc_dict(pcs: dict):
         pc_past = pcs['pc_present']
         pc_future = pcs['pc_future']
-        return pc_past, pc_future
+        pc_full = pcs['pc_full']
+        return pc_past, pc_future, pc_full
 
     @staticmethod
     def extract_pose_dict(poses: dict):
         poses_past = poses['poses_present']
         poses_future = poses['poses_future']
-        return poses_past, poses_future
+        poses_full = poses['poses_full']
+        return poses_past, poses_future, poses_full
 
     @staticmethod
     def extract_aug_dict(augs: dict):
