@@ -104,6 +104,9 @@ class SemBEVGenerator(BEVGenerator):
                 intmap_future_road = maps[4]
                 intmap_full_road = maps[5]
 
+        # Transform intensity map to more discriminative range
+        intmap_present_road = self.road_marking_transform(intmap_present_road)
+
         # Reduce storage size
         probmap_present_road = probmap_present_road.astype(np.float16)
         bev = {
@@ -113,6 +116,12 @@ class SemBEVGenerator(BEVGenerator):
         }
 
         if pc_future is not None:
+            # Transform intensity map to more discriminative range
+            intmap_future_road = self.road_marking_transform(
+                intmap_future_road)
+            intmap_full_road = self.road_marking_transform(intmap_full_road)
+
+            # Reduce storage size
             probmap_future_road = probmap_future_road.astype(np.float16)
             probmap_full_road = probmap_full_road.astype(np.float16)
             bev.update({
@@ -167,12 +176,15 @@ class SemBEVGenerator(BEVGenerator):
             # Intensity
             plt.subplot(num_rows, num_cols, num_cols + 1)
             plt.imshow(present_intensity, vmin=0, vmax=1)
+            plt.plot(poses_present[:, 0], H - poses_present[:, 1], 'r-')
 
             plt.subplot(num_rows, num_cols, num_cols + 2)
             plt.imshow(future_intensity, vmin=0, vmax=1)
+            plt.plot(poses_future[:, 0], H - poses_future[:, 1], 'r-')
 
             plt.subplot(num_rows, num_cols, num_cols + 3)
             plt.imshow(full_intensity, vmin=0, vmax=1)
+            plt.plot(poses_full[:, 0], H - poses_full[:, 1], 'r-')
 
             if num_imgs > 0:
                 for idx in range(num_imgs):
@@ -197,3 +209,21 @@ class SemBEVGenerator(BEVGenerator):
         plt.savefig(file_path)
         plt.clf()
         plt.close()
+
+    def road_marking_transform(self, intensity_map):
+        '''
+        Args:
+            intensity_map: Value interval (0, 1)
+        '''
+        int_scaler = 20
+        int_sep_scaler = 20
+        int_mid_threshold = 0.5
+        intensity_map = int_scaler * self.sigmoid(
+            int_sep_scaler * (intensity_map - int_mid_threshold))
+        # Normalization
+        intensity_map[intensity_map > 1.] = 1.
+        return intensity_map
+
+    @staticmethod
+    def sigmoid(z):
+        return 1 / (1 + np.exp(-z))
