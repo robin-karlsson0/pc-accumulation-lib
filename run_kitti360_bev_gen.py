@@ -31,10 +31,6 @@ if __name__ == '__main__':
         type=str,
         help='Relative path to a semantic segmentation ONNX model.')
     # Accumulator parameters
-    parser.add_argument('--accumulation_horizon',
-                        type=int,
-                        default=200,
-                        help='Number of point clouds to accumulate.')
     parser.add_argument('--accum_batch_size',
                         type=int,
                         default=2,
@@ -183,8 +179,6 @@ if __name__ == '__main__':
 
         # Number of observations removed from memory (used for pose diff.)
         num_obs_removed = sem_pc_accum.integrate(observations)
-
-        # print(f'    num_obs_removed {num_obs_removed}')
 
         # Update last sampled 'abs pose' relative to 'ego pose' by
         # incrementally applying each pose change associated with each

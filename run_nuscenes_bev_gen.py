@@ -32,15 +32,16 @@ if __name__ == '__main__':
         help='Relative path to a semantic segmentation ONNX model.')
     parser.add_argument('--nuscenes_version', type=str, default='v1.0-mini')
     # Accumulator parameters
-    parser.add_argument('--accumulation_horizon',
-                        type=int,
-                        default=200,
-                        help='Number of point clouds to accumulate.')
     parser.add_argument('--accum_batch_size', type=int, default=1)
+    parser.add_argument('--accum_horizon_dist',
+                        type=float,
+                        default=300,
+                        help='From front to back')
     parser.add_argument('--num_sweeps',
                         type=int,
                         default=1,
                         help='Should be 1 to avoid noise not segmented out')
+    parser.add_argument('--use_gt_sem', action="store_true")
     # BEV parameters
     parser.add_argument('--bev_output_dir', type=str, default='bevs')
     parser.add_argument('--bevs_per_sample', type=int, default=1)
@@ -153,17 +154,19 @@ if __name__ == '__main__':
 
         # Initialize accumulator
         sem_pc_accum = NuScenesSemanticPointCloudAccumulator(
-            args.accumulation_horizon,
+            args.accum_horizon_dist,
             args.icp_threshold,
             args.semseg_onnx_path,
             filters,
             sem_idxs,
+            args.use_gt_sem,
             bev_params,
         )
 
         #################
         #  Sample data
         #################
+        batch_size = 1  # args.accum_batch_size
         num_sweeps = 1
         scene_ids = [scene_id]
         dataloader = NuScenesDataloader(
@@ -175,28 +178,82 @@ if __name__ == '__main__':
         )
 
         # Integrate entire sequence
+        previous_idx = 0
         for sample_idx, observations in enumerate(dataloader):
-            sem_pc_accum.integrate(observations)
 
-        num_poses = len(sem_pc_accum.poses)
-        incr_path_dists = sem_pc_accum.get_incremental_path_dists()
+            # Number of observations removed from memory (used for pose diff.)
+            num_obs_removed = sem_pc_accum.integrate(observations)
 
-        for present_idx in range(1, num_poses):
+            # Update last sampled 'abs pose' relative to 'ego pose' by
+            # incrementally applying each pose change associated with each
+            # observation
+            #
+            # NOTE Every step integrates #batch_size observations
+            #      ==> Pose change correspond to #batch_size poses
+            #
+            # Observations    1 2 3
+            #                 - - -
+            #                | | | |
+            # Indices        1 2 3 4
+            #
+            # The first iteration lacks first starting index
+            # if len(sem_pc_accum.poses) > (batch_size + 1):
+            #     last_idx = batch_size
+            # else:
+            #     last_idx = len(sem_pc_accum.poses) - 1
+            # for idx in range(1, last_idx + 1):
+            #     pose_f = np.array(sem_pc_accum.poses[-idx])
+            #     pose_b = np.array(sem_pc_accum.poses[-idx - 1])
+            #     delta_pose = pose_f - pose_b
+            #     pose_0 -= delta_pose
+            previous_idx -= num_obs_removed
+
+            if len(sem_pc_accum.poses) < 2:
+                continue
+
+            incr_path_dists = sem_pc_accum.get_incremental_path_dists()
+
+            # Condition (1): Sufficient distance to backward horizon
+            if incr_path_dists[-1] < bev_horizon_dist:
+                continue
+
+            # Find 'present' idx position
+            dists = (incr_path_dists - bev_horizon_dist)
+            present_idx = (dists > 0).argmax()
+
+            # Condition (2): Sufficient distance from present to future horizon
+            fut_dist = incr_path_dists[-1] - incr_path_dists[present_idx]
+            if fut_dist < bev_horizon_dist:
+                continue
+
+            # Condition (3): Sufficient distance from previous sample
+            pose_0 = sem_pc_accum.get_pose(previous_idx)
+            pose_1 = sem_pc_accum.get_pose(present_idx)
+            dist_pose_1_2 = dist(pose_0, pose_1)
+
+            if dist_pose_1_2 < bev_dist_between_samples:
+                continue
+            previous_idx = present_idx
+
+            print(
+                f'{sample_idx*batch_size} | {bev_count} |',
+                f' back {incr_path_dists[present_idx]:.1f} | front {fut_dist:.1f}'
+            )
 
             bevs = sem_pc_accum.generate_bev(present_idx,
                                              bevs_per_sample,
                                              gen_future=True)
 
-            rgbs = sem_pc_accum.get_rgb(present_idx)[0]
-            semsegs = sem_pc_accum.get_semseg(present_idx)[0]
+            rgbs = sem_pc_accum.get_rgb(present_idx)
+            semsegs = sem_pc_accum.get_semseg(present_idx)
 
             for bev in bevs:
 
                 # Store BEV samples
-                if bev_idx > 1000:
+                if bev_idx >= 1000:
                     bev_idx = 0
                     subdir_idx += 1
-                filename = f'bev_{bev_idx}.pkl'
+                filename = f'bev_{bev_idx:03d}.pkl'
                 output_path = f'./{savedir}/subdir{subdir_idx:03d}/'
 
                 if not os.path.isdir(output_path):
@@ -207,7 +264,8 @@ if __name__ == '__main__':
 
                 # Visualize BEV samples
                 if viz_to_disk:
-                    viz_file = os.path.join(output_path, f'viz_{bev_idx}.png')
+                    viz_file = os.path.join(output_path,
+                                            f'viz_{bev_idx:03d}.png')
                     sem_pc_accum.viz_bev(bev, viz_file, rgbs, semsegs)
 
                 bev_idx += 1

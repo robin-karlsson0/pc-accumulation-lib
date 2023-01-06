@@ -95,22 +95,12 @@ class Kitti360SemanticPointCloudAccumulator(SemanticPointCloudAccumulator):
             pc_velo_rgbsem = np.concatenate(
                 (pc, pc_velo_rgb, pc_velo_sem[:, -1:]), axis=1)
 
-        # Transform point cloud 'ego --> abs' homogeneous coordinates
-        N = pc_velo_rgbsem.shape[0]
-        pc_velo_homo = np.concatenate((pc_velo_rgbsem[:, :3], np.ones((N, 1))),
-                                      axis=1)
-        # Replace spatial coordinates
-        pc_velo_rgbsem[:, :3] = pc_velo_homo[:, :3]
-
         # Filter out unwanted points according to semantics
         # TODO do this earlier to reduce computation?
         pc_velo_rgbsem = self.filter_semseg_pc(pc_velo_rgbsem)
 
-        # Compute pose in 'absolute' coordinates
-        # Pose = Project origin in ego ref. frame --> abs
-        pose = np.array([[0., 0., 0., 1.]]).T
-        pose = pose.T[0][:-1]  # Remove homogeneous coordinate
-        pose = pose.tolist()
+        # Pose of new observations always ego-centered
+        pose = [0., 0., 0.]
 
         self.T_prev_origin = T_new_origin
         self.pcd_prev = pcd_new
