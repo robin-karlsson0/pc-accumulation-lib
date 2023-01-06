@@ -36,7 +36,8 @@ class SemanticPointCloudAccumulator:
 
     def __init__(self, horizon_dist: float, calib_params: dict,
                  icp_threshold: float, semseg_onnx_path: str,
-                 semseg_filters: list, sem_idxs: dict, bev_params: dict):
+                 semseg_filters: list, sem_idxs: dict, use_gt_sem: bool,
+                 bev_params: dict):
         '''
         Args:
             calib_params: h_velo_cam: np.array,
@@ -49,11 +50,15 @@ class SemanticPointCloudAccumulator:
                               calib_params['f_y'] --> f_y
             semseg_filters: List of semantic class idxs to filter out from
                             point cloud.
+            use_gt_sem: Uses GT semantic classes for each point if true.
         '''
         # Semantic segmentation model
-        self.semseg_model = SemSegONNX(semseg_onnx_path)
+        self.semseg_model = None
+        if use_gt_sem is False:
+            self.semseg_model = SemSegONNX(semseg_onnx_path)
         self.semseg_filters = semseg_filters
         self.sem_idxs = sem_idxs
+        self.use_gt_sem = use_gt_sem
 
         # Calibration parameters
         self.H_velo_cam = calib_params['h_velo_cam']
@@ -88,6 +93,7 @@ class SemanticPointCloudAccumulator:
                 bev_params['pixel_size'],
                 bev_params['max_trans_radius'],
                 bev_params['zoom_thresh'],
+                bev_params['do_warp'],
             )
         elif bev_params['type'] == 'rgb':
             self.sem_bev_generator = RGBBEVGenerator(
@@ -96,6 +102,7 @@ class SemanticPointCloudAccumulator:
                 0,
                 bev_params['max_trans_radius'],
                 bev_params['zoom_thresh'],
+                bev_params['do_warp'],
             )
 
     def integrate(self, observations: list):
@@ -112,42 +119,85 @@ class SemanticPointCloudAccumulator:
         sem_pc (np.array): Semantic point cloud as row vector matrix w. dim
                            (N, 8) [x, y, z, intensity, r, g, b, sem_idx]
 
+        sem_pcs (list)] [ sem_pc_1, sem_pc_2, ... ]
+        pooses (list): [ [x,y,z]_0, [x,y,z]_1, ... ]
+
         Args:
             observations: List of K tuples (rgb, pc)
         '''
-        for obs_idx in range(len(observations)):
-            rgb, pc = observations[obs_idx]
-            sem_pc, pose, semseg = self.obs2sem_vec_space(rgb, pc)
-            self.sem_pcs.append(sem_pc)
-            self.poses.append(pose)
-            self.rgbs.append(rgb)
-            self.semsegs.append(semseg)
+        if self.use_gt_sem:
+            rgb, pc, sem_gt = observations[0]
+            sem_pc, pose, semseg, T_new_prev = self.obs2sem_vec_space(
+                rgb, pc, sem_gt)
+        else:
+            rgb, pc, _ = observations[0]
+            sem_pc, pose, semseg, T_new_prev = self.obs2sem_vec_space(rgb, pc)
 
-            # Compute path segment distance
-            if len(self.poses) > 1:
-                seg_dist = self.dist(np.array(self.poses[-1]),
-                                     np.array(self.poses[-2]))
-                self.seg_dists.append(seg_dist)
+        if len(self.poses) > 0:
 
-                path_length = np.sum(self.seg_dists)
+            # Transform previous poses to new ego coordinate system
+            new_poses = []
+            for pose_ in self.poses:
+                # Homogeneous spatial coordinates
+                new_pose = np.matmul(T_new_prev, np.array([pose_ + [1]]).T)
+                new_pose = new_pose[:, 0][:-1]  # (4,1) --> (3)
+                new_pose = list(new_pose)
+                new_poses.append(new_pose)
+            self.poses = new_poses
 
-                if path_length > self.horizon_dist:
-                    # Incremental path distance starting from zero
-                    incr_path_dists = self.get_incremental_path_dists()
-                    # Elements beyond horizon distance become negative
-                    overshoot = path_length - self.horizon_dist
-                    incr_path_dists -= overshoot
-                    # Find first non-negative element index ==> Within horizon
-                    idx = (incr_path_dists > 0.).argmax()
-                    # Remove elements before 'idx' as they are outside horizon
-                    self.sem_pcs = self.sem_pcs[idx:]
-                    self.poses = self.poses[idx:]
-                    self.seg_dists = self.seg_dists[idx:]
-                    self.rgbs = self.rgbs[idx:]
-                    self.semsegs = self.semsegs[idx:]
+            # Transform previous observations to new ego coordinate system
+            new_sem_pcs = []
+            for sem_pc_ in self.sem_pcs:
+                # Skip transforming empty point clouds
+                if sem_pc_.shape[0] == 0:
+                    new_sem_pcs.append(sem_pc_)
+                    continue
+                # Homogeneous spatial coordinates
+                N = sem_pc_.shape[0]
+                sem_pc_homo = np.concatenate((sem_pc_[:, :3], np.ones((N, 1))),
+                                             axis=1)
+                sem_pc_homo = np.matmul(T_new_prev, sem_pc_homo.T).T
+                # Replace spatial coordinates
+                sem_pc_[:, :3] = sem_pc_homo[:, :3]
+                new_sem_pcs.append(sem_pc_)
+            self.sem_pcs = new_sem_pcs
 
-                print(f'    #pc {len(self.sem_pcs)} |',
-                      f'path length {path_length:.2f}')
+        # TODO Skip integrating when self-localization fails (discontinous path)
+
+        self.sem_pcs.append(sem_pc)
+        self.poses.append(pose)
+        self.rgbs.append(rgb)
+        self.semsegs.append(semseg)
+
+        # Compute path segment distance
+        idx = 0  # Default value for no removed observations
+        if len(self.poses) > 1:
+            seg_dist = self.dist(np.array(self.poses[-1]),
+                                 np.array(self.poses[-2]))
+            self.seg_dists.append(seg_dist)
+
+            path_length = np.sum(self.seg_dists)
+
+            if path_length > self.horizon_dist:
+                # Incremental path distance starting from zero
+                incr_path_dists = self.get_incremental_path_dists()
+                # Elements beyond horizon distance become negative
+                overshoot = path_length - self.horizon_dist
+                incr_path_dists -= overshoot
+                # Find first non-negative element index ==> Within horizon
+                idx = (incr_path_dists > 0.).argmax()
+                # Remove elements before 'idx' as they are outside horizon
+                self.sem_pcs = self.sem_pcs[idx:]
+                self.poses = self.poses[idx:]
+                self.seg_dists = self.seg_dists[idx:]
+                self.rgbs = self.rgbs[idx:]
+                self.semsegs = self.semsegs[idx:]
+
+            print(f'    #pc {len(self.sem_pcs)} |',
+                  f'path length {path_length:.2f}')
+
+        # Number of observations removed
+        return idx
 
     @staticmethod
     def comp_incr_path_dist(seg_dists: list):
@@ -168,7 +218,10 @@ class SemanticPointCloudAccumulator:
 
         return incr_path_dist
 
-    def obs2sem_vec_space(self, rgb: Image, pc: np.array) -> tuple:
+    def obs2sem_vec_space(self,
+                          rgb: Image,
+                          pc: np.array,
+                          sem_gt: np.array = None) -> tuple:
         '''
         Converts a new observation to a semantic point cloud in the common
         vector space.
@@ -180,6 +233,8 @@ class SemanticPointCloudAccumulator:
             rgb: RGB image.
             pc: Point cloud as row vector matrix w. dim (N, 4)
                 [x, y, z, intensity]
+            sem_gt: Ground truth semantic class for each point (N, 1)
+                    If 'None' --> Compute semantics from image
 
         Returns:
             pc_velo_rgbsem (np.array): Semantic point cloud as row vector
@@ -197,43 +252,48 @@ class SemanticPointCloudAccumulator:
         target = self.pcd_prev
         source = pcd_new
         reg_p2l = o3d.pipelines.registration.registration_icp(
-            source, target, self.icp_threshold, self.icp_trans_init,
+            target, source, self.icp_threshold, self.icp_trans_init,
             o3d.pipelines.registration.TransformationEstimationPointToPlane())
         T_new_prev = reg_p2l.transformation
         T_new_origin = np.matmul(self.T_prev_origin, T_new_prev)
 
         # Semantic point cloud
-        semseg = self.semseg_model.pred(rgb)[0, 0]
-        pc_velo_rgb = gen_semantic_pc(pc, np.array(rgb), self.P_velo_frame)
-        pc_velo_sem = gen_semantic_pc(pc, np.expand_dims(semseg, -1),
-                                      self.P_velo_frame)
-
-        pc_velo_rgbsem = np.concatenate((pc_velo_rgb, pc_velo_sem[:, -1:]),
-                                        axis=1)
+        if sem_gt is None:
+            semseg = self.semseg_model.pred(rgb)[0, 0]
+            pc_velo_rgb = gen_semantic_pc(pc, np.array(rgb), self.P_velo_frame)
+            pc_velo_sem = gen_semantic_pc(pc, np.expand_dims(semseg, -1),
+                                          self.P_velo_frame)  # (N, 5)
+            pc_velo_rgbsem = np.concatenate((pc_velo_rgb, pc_velo_sem[:, -1:]),
+                                            axis=1)
+        else:
+            semseg = None
+            N = sem_gt.shape[0]
+            pc_velo_rgb = np.zeros((N, 3))
+            pc_velo_sem = sem_gt
+            pc_velo_rgbsem = np.concatenate(
+                (pc, pc_velo_rgb, pc_velo_sem[:, -1:]), axis=1)
 
         # Transform point cloud 'ego --> abs' homogeneous coordinates
         N = pc_velo_rgbsem.shape[0]
         pc_velo_homo = np.concatenate((pc_velo_rgbsem[:, :3], np.ones((N, 1))),
                                       axis=1)
-        pc_velo_homo = np.matmul(T_new_origin, pc_velo_homo.T).T
         # Replace spatial coordinates
         pc_velo_rgbsem[:, :3] = pc_velo_homo[:, :3]
 
         # Filter out unwanted points according to semantics
         # TODO do this earlier to reduce computation?
-        pc_velo_rgbsem = self.filter_semseg_pc(pc_velo_rgbsem, )
+        pc_velo_rgbsem = self.filter_semseg_pc(pc_velo_rgbsem)
 
         # Compute pose in 'absolute' coordinates
         # Pose = Project origin in ego ref. frame --> abs
         pose = np.array([[0., 0., 0., 1.]]).T
-        pose = np.matmul(T_new_origin, pose)
         pose = pose.T[0][:-1]  # Remove homogeneous coordinate
         pose = pose.tolist()
 
         self.T_prev_origin = T_new_origin
         self.pcd_prev = pcd_new
 
-        return pc_velo_rgbsem, pose, semseg
+        return pc_velo_rgbsem, pose, semseg, T_new_prev
 
     def get_segment_dists(self) -> list:
         '''
@@ -282,15 +342,12 @@ class SemanticPointCloudAccumulator:
                      gen_future: bool = False):
         '''
         Generates a single BEV representation.
-
         Args:
             present_idx: Concatenate all point clouds up to the index.
                          NOTE: The default value concatenates all point clouds.
-
         Returns:
             bevs: List of dictionaries containg probabilistic semantic gridmaps
                   and trajectory information.
-
         '''
         # Build up input dictonary
         pcs = {}
@@ -423,7 +480,19 @@ class SemanticPointCloudAccumulator:
         '''
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(sem_pc[:, :3])
-        rgb = sem_pc[:, 4:7]
+
+        sem = sem_pc[:, 7]
+        yellow = np.array([[253, 231, 36]])
+        blue = np.array([[68, 2, 85]])
+        N = sem.shape[0]
+        rgb = np.zeros((N, 3))
+        for idx in range(N):
+            if sem[idx] == 0:
+                rgb[idx] = yellow
+            else:
+                rgb[idx] = blue
+
+        # rgb = sem_pc[:, 4:7]
         rgb /= 255
         # rgb = np.tile(sem_pc[:, 4:5], (1, 3))
         # rgb /= np.max(rgb)
