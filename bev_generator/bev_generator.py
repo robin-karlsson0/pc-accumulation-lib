@@ -40,7 +40,11 @@ class BEVGenerator(ABC):
         self.int_sep_scaler = int_sep_scaler
         self.int_mid_threshold = int_mid_threshold
 
-        # print("NOTE: Removes points above ego-vehicle height!")
+        # Column index of semantic information
+        # E.g. [x,y,z,i,r,g,b,sem,dyn]
+        self.sem_idx = 7
+
+        print("NOTE: Removes points above ego-vehicle height!")
 
     @abstractmethod
     def generate_bev(self, pc_present: np.array, pc_future: np.array,
@@ -105,8 +109,8 @@ class BEVGenerator(ABC):
                                          aug_view_size)
 
         # Remove points above ego-vehicle height (for bridges, tunnels etc.)
-        # mask = pc[:, 2] < 1.
-        # pc = pc[mask]
+        mask = pc[:, 2] < 1.
+        pc = pc[mask]
 
         # Metric to pixel coordinates
         pc = self.pos2grid(pc, aug_view_size)
@@ -212,7 +216,8 @@ class BEVGenerator(ABC):
         '''
         sem_idxs = [self.sem_idxs[sem_cls]]
         # Partition point cloud into 'semantic' and 'non-semantic' components
-        pc_sem, pc_not_sem = self.partition_semantic_pc(pc, sem_idxs)
+        pc_sem, pc_not_sem = self.partition_semantic_pc(
+            pc, sem_idxs, self.sem_idx)
         # Count number of 'semantic' and 'non-semantic' points in each element
         gridmap_sem = self.gen_gridmap_count_map(pc_sem)
         gridmap_not_sem = self.gen_gridmap_count_map(pc_not_sem)
@@ -232,7 +237,7 @@ class BEVGenerator(ABC):
         '''
         sem_idxs = [self.sem_idxs[sem_cls]]
         # Partition point cloud into 'semantic' and 'non-semantic' components
-        pc_sem, _ = self.partition_semantic_pc(pc, sem_idxs)
+        pc_sem, _ = self.partition_semantic_pc(pc, sem_idxs, self.sem_idx)
 
         pc_int = pc_sem[:, 3]
         gridmap_int_sum = self.gen_gridmap_count_map(pc_sem, weights=pc_int)
@@ -244,17 +249,19 @@ class BEVGenerator(ABC):
         return gridmap_int
 
     @staticmethod
-    def partition_semantic_pc(pc_mat: np.array, sems: list) -> np.array:
+    def partition_semantic_pc(pc_mat: np.array, sems: list,
+                              sem_idx: int) -> np.array:
         '''
         Partitions a point cloud into 'semantic' and 'not semantic' components.
         Args:
             pc: (N, M) [x, y, ..., sem]
             sems: List of integers representing semanntics
+            sem_idx: Column index of semantic information
         '''
         # Create a mask for all points having semantics
         mask = np.zeros(pc_mat.shape[0], dtype=bool)
         for sem in sems:
-            mask = np.logical_or(mask, pc_mat[:, -1] == sem)
+            mask = np.logical_or(mask, pc_mat[:, sem_idx] == sem)
 
         pc_sem = pc_mat[mask]
         inv_mask = np.invert(mask)

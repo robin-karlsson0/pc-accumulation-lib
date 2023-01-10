@@ -1,11 +1,14 @@
 import argparse
 import os
 
+import matplotlib as mpl
 import numpy as np
 from nuscenes.nuscenes import NuScenes
 
 from nuscenes_sem_pc_accum import NuScenesSemanticPointCloudAccumulator
 from obs_dataloaders.nuscenes_obs_dataloader import NuScenesDataloader
+
+mpl.use('agg')  # Must be before pyplot import
 
 
 def dist(pose_0: np.array, pose_1: np.array):

@@ -32,6 +32,9 @@ class NuScenesSemanticPointCloudAccumulator(SemanticPointCloudAccumulator):
         if use_gt_sem:
             raise NotImplementedError()
 
+        self.xyz_idx = 0
+        self.dyn_idx = 8
+
     def integrate(self, observations: list):
         """
         Integrates a sequence of K observations into the common vector space (i.e., a world frame which can be
@@ -93,10 +96,10 @@ class NuScenesSemanticPointCloudAccumulator(SemanticPointCloudAccumulator):
             pose_z_orgin (int): Move origin above ground level.
 
         Returns:
-            pc_velo_rgbsem (np.array): Semantic point cloud as row vector
-                                       matrix w. dim (N, 8)
-                                       [x, y, z, intensity, r, g, b, sem_idx]
-            pose (list): List with (x, y, z) coordinates as floats.
+            pc_velo_rgbsem: Semantic point cloud as row vector matrix w. dim
+                            (N, 9).
+                            [x, y, z, intensity, r, g, b, sem_idx, dyn]
+            pose: List with (x, y, z) coordinates as floats.
         """
         # Convert point cloud to Open3D format using (x,y,z) data
         pcd_new = self.pc2pcd(pc[:, :3])
@@ -147,8 +150,9 @@ class NuScenesSemanticPointCloudAccumulator(SemanticPointCloudAccumulator):
         pc_xyz = pc[:, :3]
         # Normalized point cloud intensity
         pc_intensity = pc[:, 3:4] / 255.
-        pc_velo_rgbsem = np.concatenate([pc_xyz, pc_intensity, pc_rgb_sem],
-                                        axis=1)  # (N, 8)
+        pc_dyn = -np.zeros((pc.shape[0], 1), dtype=float)  # dyn
+        pc_velo_rgbsem = np.concatenate(
+            [pc_xyz, pc_intensity, pc_rgb_sem, pc_dyn], axis=1)  # (N, 9)
 
         # Pose of new observations always ego-centered
         pose = [0., 0., 0.]

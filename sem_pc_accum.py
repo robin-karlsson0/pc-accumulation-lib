@@ -143,7 +143,7 @@ class SemanticPointCloudAccumulator:
                        values x, y, z, intensity.
 
         sem_pc (np.array): Semantic point cloud as row vector matrix w. dim
-                           (N, 8) [x, y, z, intensity, r, g, b, sem_idx]
+                           (N, 9) [x, y, z, intensity, r, g, b, sem_idx, dyn]
 
         sem_pcs (list)] [ sem_pc_1, sem_pc_2, ... ]
         pooses (list): [ [x,y,z]_0, [x,y,z]_1, ... ]
@@ -503,18 +503,18 @@ class SemanticPointCloudAccumulator:
         pcd = o3d.geometry.PointCloud()
         pcd.points = o3d.utility.Vector3dVector(sem_pc[:, :3])
 
-        sem = sem_pc[:, 7]
-        yellow = np.array([[253, 231, 36]])
-        blue = np.array([[68, 2, 85]])
-        N = sem.shape[0]
-        rgb = np.zeros((N, 3))
-        for idx in range(N):
-            if sem[idx] == 0:
-                rgb[idx] = yellow
-            else:
-                rgb[idx] = blue
+        # sem = sem_pc[:, 7]
+        # yellow = np.array([[253, 231, 36]])
+        # blue = np.array([[68, 2, 85]])
+        # N = sem.shape[0]
+        # rgb = np.zeros((N, 3))
+        # for idx in range(N):
+        #     if sem[idx] == 0:
+        #         rgb[idx] = yellow
+        #     else:
+        #         rgb[idx] = blue
 
-        # rgb = sem_pc[:, 4:7]
+        rgb = sem_pc[:, 4:7]
         rgb /= 255
         # rgb = np.tile(sem_pc[:, 4:5], (1, 3))
         # rgb /= np.max(rgb)

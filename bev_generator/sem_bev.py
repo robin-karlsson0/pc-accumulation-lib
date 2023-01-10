@@ -1,6 +1,3 @@
-import matplotlib as mpl
-
-mpl.use('agg')  # Must be before pyplot import
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -46,6 +43,11 @@ class SemBEVGenerator(BEVGenerator):
             poses_present: Pose matrix w. dim (N, 3) [x, y, z]
             poses_future:
         '''
+        # ELEV_THESH = 0.05
+        # LIDAR_ELEV_FROM_GROUND = 1.7  # [m]
+        # out = self.static_obj_partitioning_by_elev(pc_present, ELEV_THESH)
+        # pc_present_static, _, elevmap, elevmap_obs_mask = out
+
         dynamic_filter = [
             self.sem_idxs['car'],
             self.sem_idxs['truck'],
@@ -53,45 +55,59 @@ class SemBEVGenerator(BEVGenerator):
             self.sem_idxs['motorcycle'],
         ]
         pc_present_dynamic, pc_present_static = self.partition_semantic_pc(
-            pc_present, dynamic_filter)
+            pc_present, dynamic_filter, self.sem_idx)
 
         # RGB
         r_present, g_present, b_present = self.get_rgb_maps(pc_present)
-        r_future, g_future, b_future = self.get_rgb_maps(pc_future)
-        r_full, g_full, b_full = self.get_rgb_maps(pc_full)
         r_present /= 255.
         g_present /= 255.
         b_present /= 255.
-        r_future /= 255.
-        g_future /= 255.
-        b_future /= 255.
-        r_full /= 255.
-        g_full /= 255.
-        b_full /= 255.
 
         probmap_present_road = self.gen_sem_probmap(pc_present_static, 'road')
 
         intmap_present_road = self.gen_intensity_map(pc_present_static, 'road')
 
+        # Normalized dynamic observation count map
+        intmap_present_dynamic = self.gen_gridmap_count_map(pc_present_dynamic)
+        intmap_present_dynamic /= np.max(intmap_present_dynamic)
+
         if pc_future is not None:
             pc_future_dynamic, pc_future_static = self.partition_semantic_pc(
-                pc_future, dynamic_filter)
+                pc_future, dynamic_filter, self.sem_idx)
+            # out = self.static_obj_partitioning_by_elev(pc_future, ELEV_THESH,
+            #                                            LIDAR_ELEV_FROM_GROUND)
+            # pc_future_static, _, _, _ = out
 
             probmap_future_road = self.gen_sem_probmap(pc_future_static,
                                                        'road')
             intmap_future_road = self.gen_intensity_map(
                 pc_future_static, 'road')
 
+            r_future, g_future, b_future = self.get_rgb_maps(pc_future)
+            r_future /= 255.
+            g_future /= 255.
+            b_future /= 255.
+
+            intmap_future_dynamic = self.gen_gridmap_count_map(
+                pc_future_dynamic)
+            intmap_future_dynamic /= np.max(intmap_future_dynamic)
+
             pc_full_dynamic, pc_full_static = self.partition_semantic_pc(
-                pc_full, dynamic_filter)
+                pc_full, dynamic_filter, self.sem_idx)
+            # out = self.static_obj_partitioning_by_elev(pc_full, ELEV_THESH,
+            #                                            LIDAR_ELEV_FROM_GROUND)
+            # pc_full_static, _, _, _ = out
 
             probmap_full_road = self.gen_sem_probmap(pc_full_static, 'road')
             intmap_full_road = self.gen_intensity_map(pc_full_static, 'road')
 
-            pc_full_dynamic, pc_full_static = self.partition_semantic_pc(
-                pc_full, dynamic_filter)
+            r_full, g_full, b_full = self.get_rgb_maps(pc_full)
+            r_full /= 255.
+            g_full /= 255.
+            b_full /= 255.
 
-            probmap_full_road = self.gen_sem_probmap(pc_full_static, 'road')
+            intmap_full_dynamic = self.gen_gridmap_count_map(pc_full_dynamic)
+            intmap_full_dynamic /= np.max(intmap_full_dynamic)
 
         # Warp all probability maps and poses
         if self.do_warp:
@@ -109,6 +125,7 @@ class SemBEVGenerator(BEVGenerator):
                 r_present,
                 g_present,
                 b_present,
+                intmap_present_dynamic,
             ]
             if pc_future is not None:
                 maps.append(probmap_future_road)
@@ -121,6 +138,8 @@ class SemBEVGenerator(BEVGenerator):
                 maps.append(r_full)
                 maps.append(g_full)
                 maps.append(b_full)
+                maps.append(intmap_future_dynamic)
+                maps.append(intmap_full_dynamic)
 
             maps = np.stack(maps)
             maps = self.warp_dense_probmaps(maps, a_1, a_2, b_1, b_2)
@@ -132,25 +151,29 @@ class SemBEVGenerator(BEVGenerator):
             r_present = maps[2]
             g_present = maps[3]
             b_present = maps[4]
+            intmap_present_dynamic = maps[5]
 
             if pc_future is not None:
-                probmap_future_road = maps[5]
+                probmap_future_road = maps[6]
                 poses_future = self.warp_sparse_points(poses_future, a_1, a_2,
                                                        b_1, b_2, i_mid, j_mid,
                                                        i_warp, j_warp)
-                probmap_full_road = maps[6]
+                probmap_full_road = maps[7]
                 poses_full = self.warp_sparse_points(poses_full, a_1, a_2, b_1,
                                                      b_2, i_mid, j_mid, i_warp,
                                                      j_warp)
-                intmap_future_road = maps[7]
-                intmap_full_road = maps[8]
+                intmap_future_road = maps[8]
+                intmap_full_road = maps[9]
 
-                r_future = maps[9]
-                g_future = maps[10]
-                b_future = maps[11]
-                r_full = maps[12]
-                g_full = maps[13]
-                b_full = maps[14]
+                r_future = maps[10]
+                g_future = maps[11]
+                b_future = maps[12]
+                r_full = maps[13]
+                g_full = maps[14]
+                b_full = maps[15]
+
+                intmap_future_dynamic = maps[16]
+                intmap_full_dynamic = maps[17]
 
         # Transform intensity map to more discriminative range
         intmap_present_road = self.road_marking_transform(
@@ -163,11 +186,13 @@ class SemBEVGenerator(BEVGenerator):
         probmap_present_road = probmap_present_road.astype(np.float16)
         rgb_present = rgb_present.astype(np.float16)
         intmap_present_road = intmap_present_road.astype(np.float16)
+        intmap_present_dynamic = intmap_present_dynamic.astype(np.float16)
         bev = {
             'road_present': probmap_present_road,
             'poses_present': poses_present,
             'intensity_present': intmap_present_road,
             'rgb_present': rgb_present,
+            'dynamic_present': intmap_present_dynamic,
         }
 
         if pc_future is not None:
@@ -189,6 +214,8 @@ class SemBEVGenerator(BEVGenerator):
             intmap_full_road = intmap_full_road.astype(np.float16)
             rgb_future = rgb_future.astype(np.float16)
             rgb_full = rgb_full.astype(np.float16)
+            intmap_future_dynamic = intmap_future_dynamic.astype(np.float16)
+            intmap_full_dynamic = intmap_full_dynamic.astype(np.float16)
             bev.update({
                 'road_future': probmap_future_road,
                 'poses_future': poses_future,
@@ -198,6 +225,8 @@ class SemBEVGenerator(BEVGenerator):
                 'intensity_full': intmap_full_road,
                 'rgb_future': rgb_future,
                 'rgb_full': rgb_full,
+                'dynamic_future': intmap_future_dynamic,
+                'dynamic_full': intmap_full_dynamic,
             })
 
         return bev
@@ -209,6 +238,7 @@ class SemBEVGenerator(BEVGenerator):
         poses_present = bev['poses_present']
         present_intensity = bev['intensity_present']
         present_rgb = bev['rgb_present']
+        present_dynamic = bev['dynamic_present']
 
         H = self.pixel_size
 
@@ -229,6 +259,8 @@ class SemBEVGenerator(BEVGenerator):
             full_intensity = bev['intensity_full']
             future_rgb = bev['rgb_future']
             full_rgb = bev['rgb_full']
+            future_dynamic = bev['dynamic_future']
+            full_dynamic = bev['dynamic_full']
 
             future_rgb = np.transpose(future_rgb, (1, 2, 0))
             full_rgb = np.transpose(full_rgb, (1, 2, 0))
@@ -250,6 +282,19 @@ class SemBEVGenerator(BEVGenerator):
 
             plt.subplot(num_rows, num_cols, 3)
             plt.imshow(full_road, vmin=0, vmax=1)
+            plt.plot(poses_full[:, 0], H - poses_full[:, 1], 'r-')
+
+            # Dynamic counts
+            plt.subplot(num_rows, num_cols, 4)
+            plt.imshow(present_dynamic, vmin=0, vmax=1)
+            plt.plot(poses_present[:, 0], H - poses_present[:, 1], 'r-')
+
+            plt.subplot(num_rows, num_cols, 5)
+            plt.imshow(future_dynamic, vmin=0, vmax=1)
+            plt.plot(poses_future[:, 0], H - poses_future[:, 1], 'r-')
+
+            plt.subplot(num_rows, num_cols, 6)
+            plt.imshow(full_dynamic, vmin=0, vmax=1)
             plt.plot(poses_full[:, 0], H - poses_full[:, 1], 'r-')
 
             # Intensity
@@ -301,6 +346,43 @@ class SemBEVGenerator(BEVGenerator):
         plt.savefig(file_path)
         plt.clf()
         plt.close()
+
+    def static_obj_partitioning_by_elev(self, pc: np.array,
+                                        elev_thresh: float):
+        '''
+        '''
+
+        # Elevation maps
+        elevmap = np.zeros((self.pixel_size, self.pixel_size))
+        elevmap_obs_mask = np.zeros_like(elevmap, dtype=bool)
+
+        for idx in range(pc.shape[0]):
+            i = pc[idx, 0].astype(int)
+            j = pc[idx, 1].astype(int)
+            z = pc[idx, 2]
+            j_rev = self.pixel_size - 1 - j
+            if elevmap_obs_mask[j_rev][i]:
+                if z < elevmap[j_rev][i]:
+                    elevmap[j_rev][i] = z
+            else:
+                elevmap[j_rev][i] = z
+                elevmap_obs_mask[j_rev][i] = True
+
+        for idx in range(pc.shape[0]):
+            i = pc[idx, 0].astype(int)
+            j = pc[idx, 1].astype(int)
+            z = pc[idx, 2]
+            j_rev = self.pixel_size - 1 - j
+            if z > elevmap[j_rev][i] + elev_thresh:
+                pc[idx, 8] = 1
+
+        mask = pc[:, 8] == 0
+        pc_static = pc[mask]
+
+        mask = pc[:, 8] == 1
+        pc_dynamic = pc[mask]
+
+        return pc_static, pc_dynamic, elevmap, elevmap_obs_mask
 
     def road_marking_transform(self, intensity_map: np.array,
                                int_scaler: float, int_sep_scaler: float,
