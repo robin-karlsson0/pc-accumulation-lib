@@ -1,21 +1,29 @@
 import numpy as np
 import open3d as o3d
 
-from datasets.nuscenes_utils import pts_feat_from_img
+from datasets.nuscenes_utils import homo_transform, pts_feat_from_img
 from sem_pc_accum import SemanticPointCloudAccumulator
 
 
-class NuScenesSemanticPointCloudAccumulator(SemanticPointCloudAccumulator):
+class NuScenesOracleSemanticPointCloudAccumulator(SemanticPointCloudAccumulator
+                                                  ):
 
-    def __init__(self,
-                 horizon_dist,
-                 icp_threshold,
-                 semseg_onnx_path=None,
-                 semseg_filters=None,
-                 sem_idxs=None,
-                 use_gt_sem=None,
-                 bev_params=None):
+    def __init__(
+            self,
+            # horizon_dist,
+            # icp_threshold,
+            semseg_onnx_path=None,
+            semseg_filters=None,
+            sem_idxs=None,
+            use_gt_sem=None,
+            bev_params=None):
         """
+
+        Coordinate systems
+            global: Map frame.
+            world: Origo at first ego frame.
+            ego: Origo at ego vehicle.
+
         Args:
             horizon_dist (float): maximum distance that ego vehicle traveled
                 within an accumulated pointcloud. If ego vehicle travels more
@@ -26,8 +34,8 @@ class NuScenesSemanticPointCloudAccumulator(SemanticPointCloudAccumulator):
             sem_idxs (dict): mapping semseg class to str
             bev_params (dict):
         """
-        super().__init__(horizon_dist, icp_threshold, semseg_onnx_path,
-                         semseg_filters, sem_idxs, use_gt_sem, bev_params)
+        super().__init__(None, None, semseg_onnx_path, semseg_filters,
+                         sem_idxs, use_gt_sem, bev_params)
 
         if use_gt_sem:
             raise NotImplementedError()
@@ -36,11 +44,18 @@ class NuScenesSemanticPointCloudAccumulator(SemanticPointCloudAccumulator):
         self.xyz_idx = 0
         self.dyn_idx = 8
 
+        # 4x4 transformation matrix mapping pnts 'global' --> 'world' frame
+        # Specified at first observation integration
+        self.T_global_world = None
+
     def integrate(self, observations: list):
         """
-        Integrates a sequence of K observations into the common vector space (i.e., a world frame which can be
-        different to the global frame of NuScenes, for example 1st ego vehicle frame)
+        Integrates a sequence of K observations into the common vector space
+        (i.e., a world frame which can be different to the global frame of
+        NuScenes, for example 1st ego vehicle frame)
+
         Points in vector space are defined by [X, Y, Z] coordinates.
+
         Args:
             observations: List of K dict. One dict has the following keys
                 images (list[PIL]):
@@ -49,52 +64,48 @@ class NuScenesSemanticPointCloudAccumulator(SemanticPointCloudAccumulator):
                 ego_at_lidar_ts (np.ndarray): (4, 4) ego vehicle pose w.r.t global frame @ timestamp of lidar
                 cam_channels (list[str]):
         """
+
         obs = observations[0]
         rgbs = obs['images']
         pc = obs['pc']
         pc_cam_idx = obs['pc_cam_idx']
+        T_ego_global = obs['ego_at_lidar_ts']
 
-        sem_pc, pose, semsegs, T_new_prev = self.obs2sem_vec_space(
-            rgbs, pc, pc_cam_idx)
+        if self.T_global_world is None:
+            self.T_global_world = np.linalg.inv(T_ego_global)
 
-        # Transform previous poses and sem_pcs to new ego coordinate system
-        if len(self.poses) > 0:
-            self.update_poses(T_new_prev)
-            self.update_sem_pcs(T_new_prev)
+        sem_pc, pose, semsegs = self.obs2sem_vec_space(rgbs, pc, pc_cam_idx,
+                                                       T_ego_global)
 
         self.sem_pcs.append(sem_pc)
         self.poses.append(pose)
         self.rgbs.append(rgbs)
         self.semsegs.append(semsegs)
 
-        # Remove observations beyond "memory horizon"
-        idx = 0  # Default value for no removed observations
+        # Compute path segment distance
         if len(self.poses) > 1:
-            idx, path_length = self.remove_observations()
+            seg_dist = self.dist(np.array(self.poses[-1]),
+                                 np.array(self.poses[-2]))
+            self.seg_dists.append(seg_dist)
+
+            path_length = np.sum(self.seg_dists)
 
             print(f'    #pc {len(self.sem_pcs)} |',
                   f'path length {path_length:.2f}')
 
-        # Number of observations removed
-        return idx
-
-    def obs2sem_vec_space(self,
-                          rgbs: list,
-                          pc: np.array,
-                          pc_cam_idx: np.array,
-                          pose_z_origin: float = 1.) -> tuple:
+    def obs2sem_vec_space(self, rgbs: list, pc: np.array, pc_cam_idx: np.array,
+                          T_ego_global: np.array) -> tuple:
         """
         Converts a new observation to a semantic point cloud in the common
-        vector space.
-        The function maintains the most recent pointcloud and transformation
-        for the next observation update.
+        vector space using oracle ego pose (i.e. ground truth).
 
         Args:
             rgbs: List of RGB images (PIL)
             pc: Point cloud as row vector matrix w. dim (N, 7)
                 [x, y, z, int, pixel_u, pixel_v, time-lag w.r.t keyframe]
             pc_cam_idx: Index of camera where each point projected onto
-            pose_z_orgin (int): Move origin above ground level.
+            T_ego_global: 4x4 transformation matrix mapping pnts 'ego' -->
+                          'global' frame
 
         Returns:
             pc_velo_rgbsem: Semantic point cloud as row vector matrix w. dim
@@ -103,20 +114,11 @@ class NuScenesSemanticPointCloudAccumulator(SemanticPointCloudAccumulator):
             pose: List with (x, y, z) coordinates as floats.
             semsegs: List with np.array semantic segmentation outputs.
         """
-        # Convert point cloud to Open3D format using (x,y,z) data
-        pcd_new = self.pc2pcd(pc[:, :3])
-        if self.pcd_prev is None:
-            self.pcd_prev = pcd_new
-
-        # Compute pose transformation T 'origin' --> 'current pc'
-        # Transform 'ego' --> 'abs' ref. frame
-        target = self.pcd_prev
-        source = pcd_new
-        reg_p2l = o3d.pipelines.registration.registration_icp(
-            target, source, self.icp_threshold, self.icp_trans_init,
-            o3d.pipelines.registration.TransformationEstimationPointToPlane())
-        T_new_prev = reg_p2l.transformation
-        T_new_origin = np.matmul(self.T_prev_origin, T_new_prev)
+        #######################################
+        #  Ego pose (x,y,z) in 'world' frame
+        #######################################
+        T_ego_world = self.T_global_world @ T_ego_global  # 4x4
+        pose = T_ego_world[:3, -1].tolist()
 
         ###################################################
         #  Decorate pointcloud with semantic from images
@@ -149,38 +151,15 @@ class NuScenesSemanticPointCloudAccumulator(SemanticPointCloudAccumulator):
         mask_valid = np.logical_not(mask_invalid_pts)
         pc, pc_rgb_sem = pc[mask_valid], pc_rgb_sem[mask_valid]
 
-        pc_xyz = pc[:, :3]
+        #########################################
+        #  Transform pointcloud to WORLD frame
+        #########################################
+        pc_xyz = homo_transform(T_ego_world, pc[:, :3])
+
         # Normalized point cloud intensity
         pc_intensity = pc[:, 3:4] / 255.
         pc_dyn = -np.zeros((pc.shape[0], 1), dtype=float)  # dyn
         pc_velo_rgbsem = np.concatenate(
             [pc_xyz, pc_intensity, pc_rgb_sem, pc_dyn], axis=1)  # (N, 9)
 
-        # Pose of new observations always ego-centered
-        pose = [0., 0., 0.]
-
-        # Move stored pose origin up from the ground
-        pose[2] += pose_z_origin
-
-        self.T_prev_origin = T_new_origin
-        self.pcd_prev = pcd_new
-
-        return pc_velo_rgbsem, pose, semsegs, T_new_prev
-
-    def get_rgb(self, idx: int = None) -> list:
-        '''
-        Returns one or all rgb images (PIL.Image) depending on 'idx'.
-        '''
-        if idx is None:
-            return self.rgbs
-        else:
-            return self.rgbs[idx]
-
-    def get_semseg(self, idx: int = None) -> list:
-        '''
-        Returns one or all semseg outputs (np.array) depending on 'idx'.
-        '''
-        if idx is None:
-            return self.semsegs
-        else:
-            return self.semsegs[idx]
+        return pc_velo_rgbsem, pose, semsegs

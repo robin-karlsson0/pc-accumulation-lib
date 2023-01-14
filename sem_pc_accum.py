@@ -117,8 +117,10 @@ class SemanticPointCloudAccumulator:
                 bev_params['int_scaler'],
                 bev_params['int_sep_scaler'],
                 bev_params['int_mid_threshold'],
+                bev_params['height_filter'],
             )
         elif bev_params['type'] == 'rgb':
+            raise NotImplementedError('Needs refactoring')
             self.sem_bev_generator = RGBBEVGenerator(
                 bev_params['view_size'],
                 bev_params['pixel_size'],

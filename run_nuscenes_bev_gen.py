@@ -5,6 +5,8 @@ import matplotlib as mpl
 import numpy as np
 from nuscenes.nuscenes import NuScenes
 
+from nuscenes_oracle_sem_pc_accum import \
+    NuScenesOracleSemanticPointCloudAccumulator
 from nuscenes_sem_pc_accum import NuScenesSemanticPointCloudAccumulator
 from obs_dataloaders.nuscenes_obs_dataloader import NuScenesDataloader
 
@@ -35,6 +37,7 @@ if __name__ == '__main__':
         help='Relative path to a semantic segmentation ONNX model.')
     parser.add_argument('--nuscenes_version', type=str, default='v1.0-mini')
     # Accumulator parameters
+    parser.add_argument('--use_oracle_pose', action='store_true')
     parser.add_argument('--accum_batch_size', type=int, default=1)
     parser.add_argument('--accum_horizon_dist',
                         type=float,
@@ -71,6 +74,7 @@ if __name__ == '__main__':
     parser.add_argument('--int_scaler', type=float, default=1.)
     parser.add_argument('--int_sep_scaler', type=float, default=1.)
     parser.add_argument('--int_mid_threshold', type=float, default=0.5)
+    parser.add_argument('--height_filter', type=float, default=None)
     # ICP parameters
     parser.add_argument('--icp_threshold', type=float, default=1e3)
     # NuScenes invalid scene attributes
@@ -122,6 +126,7 @@ if __name__ == '__main__':
         'int_scaler': args.int_scaler,
         'int_sep_scaler': args.int_sep_scaler,
         'int_mid_threshold': args.int_mid_threshold,
+        'height_filter': args.height_filter,  # Remove pnts above ego vehicle
     }
 
     savedir = args.bev_output_dir
@@ -162,15 +167,24 @@ if __name__ == '__main__':
             continue
 
         # Initialize accumulator
-        sem_pc_accum = NuScenesSemanticPointCloudAccumulator(
-            args.accum_horizon_dist,
-            args.icp_threshold,
-            args.semseg_onnx_path,
-            filters,
-            sem_idxs,
-            args.use_gt_sem,
-            bev_params,
-        )
+        if args.use_oracle_pose:
+            sem_pc_accum = NuScenesOracleSemanticPointCloudAccumulator(
+                args.semseg_onnx_path,
+                filters,
+                sem_idxs,
+                args.use_gt_sem,
+                bev_params,
+            )
+        else:
+            sem_pc_accum = NuScenesSemanticPointCloudAccumulator(
+                args.accum_horizon_dist,
+                args.icp_threshold,
+                args.semseg_onnx_path,
+                filters,
+                sem_idxs,
+                args.use_gt_sem,
+                bev_params,
+            )
 
         #################
         #  Sample data
@@ -187,48 +201,20 @@ if __name__ == '__main__':
         )
 
         # Integrate entire sequence
-        previous_idx = 0
         for sample_idx, observations in enumerate(dataloader):
+            sem_pc_accum.integrate(observations)
 
-            # Number of observations removed from memory (used for pose diff.)
-            num_obs_removed = sem_pc_accum.integrate(observations)
+        #############################################
+        #  Generate samples at specified intervals
+        ############################################
+        incr_path_dists = sem_pc_accum.get_incremental_path_dists()
 
-            # Update last sampled 'abs pose' relative to 'ego pose' by
-            # incrementally applying each pose change associated with each
-            # observation
-            #
-            # NOTE Every step integrates #batch_size observations
-            #      ==> Pose change correspond to #batch_size poses
-            #
-            # Observations    1 2 3
-            #                 - - -
-            #                | | | |
-            # Indices        1 2 3 4
-            #
-            # The first iteration lacks first starting index
-            # if len(sem_pc_accum.poses) > (batch_size + 1):
-            #     last_idx = batch_size
-            # else:
-            #     last_idx = len(sem_pc_accum.poses) - 1
-            # for idx in range(1, last_idx + 1):
-            #     pose_f = np.array(sem_pc_accum.poses[-idx])
-            #     pose_b = np.array(sem_pc_accum.poses[-idx - 1])
-            #     delta_pose = pose_f - pose_b
-            #     pose_0 -= delta_pose
-            previous_idx -= num_obs_removed
-
-            if len(sem_pc_accum.poses) < 2:
-                continue
-
-            incr_path_dists = sem_pc_accum.get_incremental_path_dists()
+        previous_idx = 0
+        for present_idx in range(len(sem_pc_accum.poses)-1):
 
             # Condition (1): Sufficient distance to backward horizon
-            if incr_path_dists[-1] < bev_horizon_dist:
+            if incr_path_dists[present_idx] < bev_horizon_dist:
                 continue
-
-            # Find 'present' idx position
-            dists = (incr_path_dists - bev_horizon_dist)
-            present_idx = (dists > 0).argmax()
 
             # Condition (2): Sufficient distance from present to future horizon
             fut_dist = incr_path_dists[-1] - incr_path_dists[present_idx]
@@ -253,8 +239,8 @@ if __name__ == '__main__':
                                              bevs_per_sample,
                                              gen_future=True)
 
-            rgbs = sem_pc_accum.get_rgb(present_idx)
-            semsegs = sem_pc_accum.get_semseg(present_idx)
+            rgbs = sem_pc_accum.get_rgb(present_idx)[0]
+            semsegs = sem_pc_accum.get_semseg(present_idx)[0]
 
             for bev in bevs:
 

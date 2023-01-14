@@ -18,6 +18,7 @@ class SemBEVGenerator(BEVGenerator):
                  int_scaler: float = 1.,
                  int_sep_scaler: float = 1.,
                  int_mid_threshold: float = 0.5,
+                 height_filter=None,
                  rgb_fill: int = 0):
         '''
         Args:
@@ -25,7 +26,7 @@ class SemBEVGenerator(BEVGenerator):
         '''
         super().__init__(view_size, pixel_size, max_trans_radius, zoom_thresh,
                          do_warp, int_scaler, int_sep_scaler,
-                         int_mid_threshold)
+                         int_mid_threshold, height_filter)
 
         # Dictionary with semantic --> index mapping
         self.sem_idxs = sem_idxs
@@ -205,7 +206,7 @@ class SemBEVGenerator(BEVGenerator):
                 self.int_mid_threshold)
 
             rgb_future = np.stack((r_future, g_future, b_future))
-            rgb_full = np.stack((r_future, g_future, b_future))
+            rgb_full = np.stack((r_full, g_full, b_full))
 
             # Reduce storage size
             probmap_future_road = probmap_future_road.astype(np.float16)
@@ -310,7 +311,7 @@ class SemBEVGenerator(BEVGenerator):
             plt.imshow(full_intensity, vmin=0, vmax=1)
             plt.plot(poses_full[:, 0], H - poses_full[:, 1], 'r-')
 
-            # Intensity
+            # RGB
             plt.subplot(num_rows, num_cols, 2 * num_cols + 1)
             plt.imshow(present_rgb)
             plt.plot(poses_present[:, 0], H - poses_present[:, 1], 'r-')

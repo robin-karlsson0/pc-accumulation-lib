@@ -19,7 +19,8 @@ class BEVGenerator(ABC):
                  do_warp: bool = False,
                  int_scaler: float = 1.,
                  int_sep_scaler: float = 1.,
-                 int_mid_threshold: float = 0.5):
+                 int_mid_threshold: float = 0.5,
+                 height_filter=None):
         '''
         '''
         # View frame size in [m]
@@ -44,7 +45,11 @@ class BEVGenerator(ABC):
         # E.g. [x,y,z,i,r,g,b,sem,dyn]
         self.sem_idx = 7
 
-        print("NOTE: Removes points above ego-vehicle height!")
+        # Remove point above ego-vehicle height
+        # NOTE: Ego pose == static World frame origin in NuScenes
+        self.height_filter = height_filter
+        if self.height_filter is not None:
+            print("NOTE: Removes points above ego-vehicle height!")
 
     @abstractmethod
     def generate_bev(self, pc_present: np.array, pc_future: np.array,
@@ -109,8 +114,9 @@ class BEVGenerator(ABC):
                                          aug_view_size)
 
         # Remove points above ego-vehicle height (for bridges, tunnels etc.)
-        mask = pc[:, 2] < 1.
-        pc = pc[mask]
+        if self.height_filter is not None:
+            mask = pc[:, 2] < self.height_filter
+            pc = pc[mask]
 
         # Metric to pixel coordinates
         pc = self.pos2grid(pc, aug_view_size)
