@@ -8,16 +8,15 @@ from sem_pc_accum import SemanticPointCloudAccumulator
 class NuScenesOracleSemanticPointCloudAccumulator(SemanticPointCloudAccumulator
                                                   ):
 
-    def __init__(
-            self,
-            # horizon_dist,
-            # icp_threshold,
-            semseg_onnx_path=None,
-            semseg_filters=None,
-            sem_idxs=None,
-            use_gt_sem=None,
-            bev_params=None):
+    def __init__(self,
+                 semseg_onnx_path=None,
+                 semseg_filters=None,
+                 sem_idxs=None,
+                 use_gt_sem=None,
+                 bev_params=None):
         """
+        Semantic point cloud accumulator compatible with NuScenes GT ego pose
+        annotations (i.e. perfect acccumulation without ICP).
 
         Coordinate systems
             global: Map frame.
