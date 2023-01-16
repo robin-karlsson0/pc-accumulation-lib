@@ -61,8 +61,8 @@ if __name__ == '__main__':
                         default='sem',
                         help='sem or rgb')
     parser.add_argument('--bev_view_size',
-                        type=int,
-                        default=80,
+                        type=float,
+                        default=80.,
                         help='BEV representation size in [m]')
     parser.add_argument('--bev_pixel_size',
                         type=int,
@@ -210,7 +210,7 @@ if __name__ == '__main__':
         incr_path_dists = sem_pc_accum.get_incremental_path_dists()
 
         previous_idx = 0
-        for present_idx in range(len(sem_pc_accum.poses)-1):
+        for present_idx in range(len(sem_pc_accum.poses) - 1):
 
             # Condition (1): Sufficient distance to backward horizon
             if incr_path_dists[present_idx] < bev_horizon_dist:
