@@ -36,6 +36,8 @@ if __name__ == '__main__':
         type=str,
         help='Relative path to a semantic segmentation ONNX model.')
     parser.add_argument('--nuscenes_version', type=str, default='v1.0-mini')
+    parser.add_argument('--start_scene_idx', type=int, default=0)
+    parser.add_argument('--end_scene_idx', type=int, default=750)
     # Accumulator parameters
     parser.add_argument('--use_oracle_pose', action='store_true')
     parser.add_argument('--accum_batch_size', type=int, default=1)
@@ -144,7 +146,7 @@ if __name__ == '__main__':
     skip_attributes = args.skip_attr
     nusc = NuScenes(dataroot=args.nuscenes_path, version=args.nuscenes_version)
 
-    for scene_id in range(850):
+    for scene_id in range(args.start_scene_idx, args.end_scene_idx):
 
         print(f'Processing scene id {scene_id}')
 
