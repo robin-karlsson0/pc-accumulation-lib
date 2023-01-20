@@ -34,15 +34,16 @@ class SemBEVGenerator(BEVGenerator):
         self.rgb_fill = rgb_fill
 
     def generate_bev(self, pc_present: np.array, pc_future: np.array,
-                     pc_full: np.array, poses_present: np.array,
-                     poses_future: np.array, poses_full: np.array):
+                     pc_full: np.array, trajs_present: np.array,
+                     trajs_future: np.array, trajs_full: np.array):
         '''
         Args:
             pc_present: Semantic point cloud matrix w. dim (N, 8)
                         [x, y, z, i, r, g, b, sem]
             pc_future:
-            poses_present: Pose matrix w. dim (N, 3) [x, y, z]
-            poses_future:
+            trajs_present: List of pose matrices w. dim (N, 3) [x,y,z]
+            trajs_future:
+            trajs_full:
         '''
         # ELEV_THESH = 0.05
         # LIDAR_ELEV_FROM_GROUND = 1.7  # [m]
@@ -117,7 +118,7 @@ class SemBEVGenerator(BEVGenerator):
             intmap_full_dynamic = self.gen_gridmap_count_map(pc_full_dynamic)
             intmap_full_dynamic /= np.max(intmap_full_dynamic)
 
-        # Warp all probability maps and poses
+        # Warp all probability maps and trajectories
         if self.do_warp:
             i_mid = int(self.pixel_size / 2)
             j_mid = i_mid
@@ -154,9 +155,8 @@ class SemBEVGenerator(BEVGenerator):
 
             maps = np.stack(maps)
             maps = self.warp_dense_probmaps(maps, a_1, a_2, b_1, b_2)
-            poses_present = self.warp_sparse_points(poses_present, a_1, a_2,
-                                                    b_1, b_2, i_mid, j_mid,
-                                                    i_warp, j_warp)
+            trajs_present = self.warp_trajs(trajs_present, a_1, a_2, b_1, b_2,
+                                            i_mid, j_mid, i_warp, j_warp)
             probmap_present_road = maps[0]
             intmap_present_road = maps[1]
             r_present = maps[2]
@@ -167,13 +167,12 @@ class SemBEVGenerator(BEVGenerator):
 
             if pc_future is not None:
                 probmap_future_road = maps[7]
-                poses_future = self.warp_sparse_points(poses_future, a_1, a_2,
-                                                       b_1, b_2, i_mid, j_mid,
-                                                       i_warp, j_warp)
+                trajs_future = self.warp_trajs(trajs_future, a_1, a_2, b_1,
+                                               b_2, i_mid, j_mid, i_warp,
+                                               j_warp)
                 probmap_full_road = maps[8]
-                poses_full = self.warp_sparse_points(poses_full, a_1, a_2, b_1,
-                                                     b_2, i_mid, j_mid, i_warp,
-                                                     j_warp)
+                trajs_full = self.warp_trajs(trajs_full, a_1, a_2, b_1, b_2,
+                                             i_mid, j_mid, i_warp, j_warp)
                 intmap_future_road = maps[9]
                 intmap_full_road = maps[10]
 
@@ -205,7 +204,7 @@ class SemBEVGenerator(BEVGenerator):
         elevmap_present = elevmap_present.astype(np.float16)
         bev = {
             'road_present': probmap_present_road,
-            'poses_present': poses_present,
+            'trajs_present': trajs_present,
             'intensity_present': intmap_present_road,
             'rgb_present': rgb_present,
             'dynamic_present': intmap_present_dynamic,
@@ -237,9 +236,9 @@ class SemBEVGenerator(BEVGenerator):
             elevmap_full = elevmap_full.astype(np.float16)
             bev.update({
                 'road_future': probmap_future_road,
-                'poses_future': poses_future,
+                'trajs_future': trajs_future,
                 'road_full': probmap_full_road,
-                'poses_full': poses_full,
+                'trajs_full': trajs_full,
                 'intensity_future': intmap_future_road,
                 'intensity_full': intmap_full_road,
                 'rgb_future': rgb_future,
@@ -256,7 +255,7 @@ class SemBEVGenerator(BEVGenerator):
         '''
         '''
         present_road = bev['road_present']
-        poses_present = bev['poses_present']
+        trajs_present = bev['trajs_present']
         present_intensity = bev['intensity_present']
         present_rgb = bev['rgb_present']
         present_dynamic = bev['dynamic_present']
@@ -274,9 +273,9 @@ class SemBEVGenerator(BEVGenerator):
 
         if 'road_future' in bev.keys():
             future_road = bev['road_future']
-            poses_future = bev['poses_future']
+            trajs_future = bev['trajs_future']
             full_road = bev['road_full']
-            poses_full = bev['poses_full']
+            trajs_full = bev['trajs_full']
             future_intensity = bev['intensity_future']
             full_intensity = bev['intensity_full']
             future_rgb = bev['rgb_future']
@@ -298,41 +297,50 @@ class SemBEVGenerator(BEVGenerator):
             # Road semantic
             plt.subplot(num_rows, num_cols, 1)
             plt.imshow(present_road, vmin=0, vmax=1)
-            plt.plot(poses_present[:, 0], H - poses_present[:, 1], 'r-')
+            for traj in trajs_present:
+                plt.plot(traj[:, 0], H - traj[:, 1], 'r-')
 
             plt.subplot(num_rows, num_cols, 2)
             plt.imshow(future_road, vmin=0, vmax=1)
-            plt.plot(poses_future[:, 0], H - poses_future[:, 1], 'r-')
+            for traj in trajs_future:
+                plt.plot(traj[:, 0], H - traj[:, 1], 'r-')
 
             plt.subplot(num_rows, num_cols, 3)
             plt.imshow(full_road, vmin=0, vmax=1)
-            plt.plot(poses_full[:, 0], H - poses_full[:, 1], 'r-')
+            for traj in trajs_full:
+                plt.plot(traj[:, 0], H - traj[:, 1], 'r-')
 
             # Dynamic counts
             plt.subplot(num_rows, num_cols, 4)
             plt.imshow(present_dynamic, vmin=0, vmax=1)
-            plt.plot(poses_present[:, 0], H - poses_present[:, 1], 'r-')
+            for traj in trajs_present:
+                plt.plot(traj[:, 0], H - traj[:, 1], 'r-')
 
             plt.subplot(num_rows, num_cols, 5)
             plt.imshow(future_dynamic, vmin=0, vmax=1)
-            plt.plot(poses_future[:, 0], H - poses_future[:, 1], 'r-')
+            for traj in trajs_future:
+                plt.plot(traj[:, 0], H - traj[:, 1], 'r-')
 
             plt.subplot(num_rows, num_cols, 6)
             plt.imshow(full_dynamic, vmin=0, vmax=1)
-            plt.plot(poses_full[:, 0], H - poses_full[:, 1], 'r-')
+            for traj in trajs_full:
+                plt.plot(traj[:, 0], H - traj[:, 1], 'r-')
 
             # Intensity
             plt.subplot(num_rows, num_cols, num_cols + 1)
             plt.imshow(present_intensity, vmin=0, vmax=1)
-            plt.plot(poses_present[:, 0], H - poses_present[:, 1], 'r-')
+            for traj in trajs_present:
+                plt.plot(traj[:, 0], H - traj[:, 1], 'r-')
 
             plt.subplot(num_rows, num_cols, num_cols + 2)
             plt.imshow(future_intensity, vmin=0, vmax=1)
-            plt.plot(poses_future[:, 0], H - poses_future[:, 1], 'r-')
+            for traj in trajs_future:
+                plt.plot(traj[:, 0], H - traj[:, 1], 'r-')
 
             plt.subplot(num_rows, num_cols, num_cols + 3)
             plt.imshow(full_intensity, vmin=0, vmax=1)
-            plt.plot(poses_full[:, 0], H - poses_full[:, 1], 'r-')
+            for traj in trajs_full:
+                plt.plot(traj[:, 0], H - traj[:, 1], 'r-')
 
             # Elevation
             if self.height_filter is not None:
@@ -341,28 +349,34 @@ class SemBEVGenerator(BEVGenerator):
                 elev_thresh = 3.
             plt.subplot(num_rows, num_cols, num_cols + 4)
             plt.imshow(present_elevation, vmin=-0.5, vmax=elev_thresh)
-            plt.plot(poses_present[:, 0], H - poses_present[:, 1], 'r-')
+            for traj in trajs_present:
+                plt.plot(traj[:, 0], H - traj[:, 1], 'r-')
 
             plt.subplot(num_rows, num_cols, num_cols + 5)
             plt.imshow(future_elevation, vmin=-0.5, vmax=elev_thresh)
-            plt.plot(poses_future[:, 0], H - poses_future[:, 1], 'r-')
+            for traj in trajs_future:
+                plt.plot(traj[:, 0], H - traj[:, 1], 'r-')
 
             plt.subplot(num_rows, num_cols, num_cols + 6)
             plt.imshow(full_elevation, vmin=-0.5, vmax=elev_thresh)
-            plt.plot(poses_full[:, 0], H - poses_full[:, 1], 'r-')
+            for traj in trajs_full:
+                plt.plot(traj[:, 0], H - traj[:, 1], 'r-')
 
             # RGB
             plt.subplot(num_rows, num_cols, 2 * num_cols + 1)
             plt.imshow(present_rgb)
-            plt.plot(poses_present[:, 0], H - poses_present[:, 1], 'r-')
+            for traj in trajs_present:
+                plt.plot(traj[:, 0], H - traj[:, 1], 'r-')
 
             plt.subplot(num_rows, num_cols, 2 * num_cols + 2)
             plt.imshow(future_rgb)
-            plt.plot(poses_future[:, 0], H - poses_future[:, 1], 'r-')
+            for traj in trajs_future:
+                plt.plot(traj[:, 0], H - traj[:, 1], 'r-')
 
             plt.subplot(num_rows, num_cols, 2 * num_cols + 3)
             plt.imshow(full_rgb)
-            plt.plot(poses_full[:, 0], H - poses_full[:, 1], 'r-')
+            for traj in trajs_full:
+                plt.plot(traj[:, 0], H - traj[:, 1], 'r-')
 
             if num_imgs > 0:
                 for idx in range(num_imgs):
@@ -380,7 +394,8 @@ class SemBEVGenerator(BEVGenerator):
             _ = plt.figure(figsize=(6, 6))
 
             plt.imshow(present_road, vmin=0, vmax=1)
-            plt.plot(poses_present[:, 0], H - poses_present[:, 1], 'k-')
+            for traj in trajs_present:
+                plt.plot(traj[:, 0], H - traj[:, 1], 'r-')
 
         plt.tight_layout()
 

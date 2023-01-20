@@ -1,3 +1,5 @@
+from multiprocessing import Pool
+
 import numpy as np
 import open3d as o3d
 
@@ -194,30 +196,118 @@ class NuScenesOracleSemanticPointCloudAccumulator(SemanticPointCloudAccumulator
         print(f'    ts {self.ts} | #pc {len(self.sem_pcs)} |',
               f'path length {path_length:.2f}')
 
-        if self.ts == 38:
-            # if (self.ts + 1) % 5 == 0:
-            sem_vec_space = np.concatenate(self.sem_pcs, axis=0)
-
-            concat_seq_poses = []
-            for _, pose_obss in self.instances.items():
-
-                poses, tss = zip(*pose_obss)
-
-                seq_poses = self.parse_coherent_pose_seqs(poses, tss)
-                for seq_pose in seq_poses:
-
-                    # Skip single observations
-                    if len(seq_pose) < 2:
-                        continue
-
-                    concat_seq_poses.append(seq_pose)
-
-            concat_seq_poses.append(self.poses)
-
-            self.viz_sem_pc(sem_vec_space, (0, 0, 0), 'dyn', concat_seq_poses)
+        # if self.ts == 38:
+        #     sem_vec_space = np.concatenate(self.sem_pcs, axis=0)
+        #     seq_poses_set = self.get_dyn_obj_trajs(ts_start=30,
+        #                                            skip_ego_traj=False)
+        #     self.viz_sem_pc(sem_vec_space, (0, 0, 0), 'dyn', seq_poses_set)
 
         # Update integration time step
         self.ts += 1
+
+    def get_split_dyn_obj_trajs(self,
+                                split_idx: int,
+                                skip_ego_traj: bool = True):
+        '''
+        Args:
+            split_idx: ts to split trajs into 'past' and 'future' traj sets
+            skip_ego_traj: Does not add ego trajectory to set (others only)
+        Returns:
+            List of lists of sequential poses (x,y,z)
+            [ [pose, ...], [pose, ... ], ... ]
+        '''
+        past_seq_poses_set = self.get_dyn_obj_trajs(ts_end=split_idx)
+        future_seq_poses_set = self.get_dyn_obj_trajs(ts_start=split_idx)
+        full_seq_poses_set = self.get_dyn_obj_trajs()
+
+        return past_seq_poses_set, future_seq_poses_set, full_seq_poses_set
+
+    def get_dyn_obj_trajs(self,
+                          ts_start: int = 0,
+                          ts_end: int = None,
+                          skip_ego_traj: bool = True):
+        '''
+
+        Trajectory splicing
+            1. Given a ts --> Find corresponding array idx
+            2. Splice the 'pose' and 'tss' arrays according to idx range
+
+        Args:
+            ts_start: Time step interval to extract trajectories
+            ts_end:   - None ==> Extract until end of sequence
+            skip_ego_traj: Does not add ego trajectory to set (others only)
+        Returns:
+            List of lists of sequential poses (x,y,z)
+            [ [pose, ...], [pose, ... ], ... ]
+        '''
+        seq_poses_set = []
+        for token, pose_obss in self.instances.items():
+            # Only consider dynamic objects (that have a trajectory)
+            if token not in self.dyn_instances:
+                continue
+            # Unpack poses
+            poses, tss = zip(*pose_obss)
+
+            # Crop interval
+            try:
+                idx_start = self.find_nearest_ge_idx(tss, ts_start)
+                if ts_end is None:
+                    idx_end = None
+                else:
+                    idx_end = self.find_nearest_le_idx(tss, ts_end)
+                    idx_end += 1  # For including value in splice
+            # Skip if trajectory outside time interval
+            except ValueError:
+                continue
+            poses = poses[idx_start:idx_end]
+            tss = tss[idx_start:idx_end]
+
+            # Parse all object observations into list of sequential poses
+            seq_poses = self.parse_coherent_pose_seqs(poses, tss)
+            for seq_pose in seq_poses:
+                # Skip single observations
+                if len(seq_pose) < 2:
+                    continue
+                seq_poses_set.append(seq_pose)
+
+        if not skip_ego_traj:
+            seq_poses_set.append(self.poses)
+
+        return seq_poses_set
+
+    @staticmethod
+    def find_nearest_ge_idx(array, target_val):
+        '''
+        Finds the index of the first element larger or equal to target value in
+        a sequentially ordered array.
+
+        array: |0|1|2|3|4|6|8|9|10|    target_val: 5
+                          *
+        '''
+        for idx, val in enumerate(array):
+            if val >= target_val:
+                return idx
+        raise ValueError(f'Value {target_val} not in array {array}')
+
+    @staticmethod
+    def find_nearest_le_idx(array, target_val):
+        '''
+        Finds the index of the last element smaller or equal to target value in
+        a sequentially ordered array.
+
+        array: |0|1|2|3|4|6|8|9|10|    target_val: 5
+                        *
+        '''
+        if array[0] > target_val:
+            raise ValueError(f'Value {target_val} not in array {array}')
+
+        for idx in range(len(array) - 1):
+            next_val = array[idx + 1]
+            if next_val > target_val:
+                # Index before larger value
+                return idx
+        # Last index
+        return len(array) - 1
 
     def parse_coherent_pose_seqs(self, poses, tss):
         seq_tss = self.parse_seq_into_coherent_seqs(tss)
@@ -348,11 +438,115 @@ class NuScenesOracleSemanticPointCloudAccumulator(SemanticPointCloudAccumulator
 
         return pc_velo_rgbsem, pose, semsegs
 
+    def generate_bev(self,
+                     present_idx: int = None,
+                     bev_num: int = 1,
+                     gen_future: bool = False):
+        '''
+        Generates a single BEV representation.
+
+        Trajectory representation: (N, 3) np.array.
+
+        Args:
+            present_idx: Concatenate all point clouds up to the index.
+                         NOTE: The default value concatenates all point clouds.
+        Returns:
+            bevs: List of dictionaries containg probabilistic semantic gridmaps
+                  and trajectory information.
+        '''
+        # Build up input dictonary
+        pcs = {}
+        trajs = {}
+
+        # 'Present' pose is origo
+        if present_idx is None:
+            bev_frame_coords = np.array(self.poses[-1])
+        else:
+            bev_frame_coords = np.array(self.poses[present_idx])
+
+        # present_idx == ts
+        other_trajs = self.get_split_dyn_obj_trajs(present_idx)
+        other_trajs_present = other_trajs[0]
+
+        pc_present = np.concatenate(self.sem_pcs[:present_idx])
+        ego_traj_present = np.concatenate([self.poses[:present_idx]])
+        other_trajs_present = [
+            np.concatenate([traj]) for traj in other_trajs_present
+        ]
+
+        # Transform 'absolute' --> 'bev' coordinates
+        pc_present[:, :3] = pc_present[:, :3] - bev_frame_coords
+        ego_traj_present = ego_traj_present - bev_frame_coords
+        other_trajs_present = [
+            traj - bev_frame_coords for traj in other_trajs_present
+        ]
+
+        pcs.update({'pc_present': pc_present})
+        trajs.update({'ego_traj_present': ego_traj_present})
+        trajs.update({'other_trajs_present': other_trajs_present})
+
+        if gen_future:
+            other_trajs_future = other_trajs[1]
+            other_trajs_full = other_trajs[2]
+
+            pc_future = np.concatenate(self.sem_pcs[present_idx:])
+            pc_full = np.concatenate(self.sem_pcs)
+            ego_traj_future = np.concatenate([self.poses[present_idx:]])
+            ego_traj_full = np.concatenate([self.poses])
+            other_trajs_future = [
+                np.concatenate([traj]) for traj in other_trajs_future
+            ]
+            other_trajs_full = [
+                np.concatenate([traj]) for traj in other_trajs_full
+            ]
+
+            # Transform 'absolute' --> 'bev' coordinates
+            pc_future[:, :3] = pc_future[:, :3] - bev_frame_coords
+            pc_full[:, :3] = pc_full[:, :3] - bev_frame_coords
+            ego_traj_future = ego_traj_future - bev_frame_coords
+            ego_traj_full = ego_traj_full - bev_frame_coords
+            other_trajs_future = [
+                traj - bev_frame_coords for traj in other_trajs_future
+            ]
+            other_trajs_full = [
+                traj - bev_frame_coords for traj in other_trajs_full
+            ]
+        else:
+            pc_future = None
+            ego_traj_future = None
+            other_trajs_future = None
+            pc_full = None
+            ego_traj_full = None
+            other_trajs_full = None
+
+        pcs.update({'pc_future': pc_future})
+        trajs.update({'ego_traj_future': ego_traj_future})
+        trajs.update({'other_trajs_future': other_trajs_future})
+        pcs.update({'pc_full': pc_full})
+        trajs.update({'ego_traj_full': ego_traj_full})
+        trajs.update({'other_trajs_full': other_trajs_full})
+
+        if bev_num == 1:
+            bev_gen_inputs = (pcs, trajs)
+            bevs = self.sem_bev_generator.generate_multiproc(bev_gen_inputs)
+            # Mimic multiprocessing list output
+            bevs = [bevs]
+        else:
+            # Generate BEVs in parallel
+            # Package inputs as a tuple for multiprocessing
+            bev_gen_inputs = [(pcs, trajs)] * bev_num
+            pool = Pool(processes=bev_num)
+            bevs = pool.map(self.sem_bev_generator.generate_multiproc,
+                            bev_gen_inputs)
+
+        return bevs
+
     @staticmethod
     def viz_sem_pc(sem_pc: np.array, origin: tuple, type: str,
                    poses_sets: list()):
         '''
         Ref: http://www.open3d.org/docs/release/python_api/open3d.geometry.TriangleMesh.html
+        REf: http://www.open3d.org/docs/latest/tutorial/Basic/transformation.html
 
         Args:
             sem_pc: Semantic point cloud as row vector matrix w. dim (N, 10)
