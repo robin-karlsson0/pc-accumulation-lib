@@ -30,6 +30,7 @@ class SemBEVGenerator(BEVGenerator):
 
         # Dictionary with semantic --> index mapping
         self.sem_idxs = sem_idxs
+        self.dyn_idx = 9  # Dynamic (prob) (0: static, 1: dynamic)
 
         self.rgb_fill = rgb_fill
 
@@ -45,19 +46,11 @@ class SemBEVGenerator(BEVGenerator):
             trajs_future:
             trajs_full:
         '''
-        # ELEV_THESH = 0.05
-        # LIDAR_ELEV_FROM_GROUND = 1.7  # [m]
-        # out = self.static_obj_partitioning_by_elev(pc_present, ELEV_THESH)
-        # pc_present_static, _, elevmap, elevmap_obs_mask = out
+        dynamic_state_filter = [1]
+        dyn_obj_strs = ['car', 'truck', 'bus', 'motorcycle']
 
-        dynamic_filter = [
-            self.sem_idxs['car'],
-            self.sem_idxs['truck'],
-            self.sem_idxs['bus'],
-            self.sem_idxs['motorcycle'],
-        ]
-        pc_present_dynamic, pc_present_static = self.partition_semantic_pc(
-            pc_present, dynamic_filter, self.sem_idx)
+        _, pc_present_static = self.partition_semantic_pc(
+            pc_present, dynamic_state_filter, self.dyn_idx)
 
         # RGB
         r_present, g_present, b_present = self.get_rgb_maps(pc_present_static)
@@ -68,23 +61,23 @@ class SemBEVGenerator(BEVGenerator):
         # Elevation map
         elevmap_present, _ = self.get_elevation_map(pc_present_static)
 
-        probmap_present_road = self.gen_sem_probmap(pc_present_static, 'road')
+        probmap_present_road = self.gen_sem_probmap(pc_present_static,
+                                                    ['road'])
 
         intmap_present_road = self.gen_intensity_map(pc_present_static, 'road')
 
         # Normalized dynamic observation count map
-        intmap_present_dynamic = self.gen_gridmap_count_map(pc_present_dynamic)
-        intmap_present_dynamic /= np.max(intmap_present_dynamic)
+        # intmap_present_dynamic = self.gen_gridmap_count_map(pc_present_dynamic)
+        # intmap_present_dynamic /= np.max(intmap_present_dynamic)
+        probmap_present_static_obj = self.gen_sem_probmap(
+            pc_present_static, dyn_obj_strs)
 
         if pc_future is not None:
-            pc_future_dynamic, pc_future_static = self.partition_semantic_pc(
-                pc_future, dynamic_filter, self.sem_idx)
-            # out = self.static_obj_partitioning_by_elev(pc_future, ELEV_THESH,
-            #                                            LIDAR_ELEV_FROM_GROUND)
-            # pc_future_static, _, _, _ = out
+            _, pc_future_static = self.partition_semantic_pc(
+                pc_future, dynamic_state_filter, self.dyn_idx)
 
             probmap_future_road = self.gen_sem_probmap(pc_future_static,
-                                                       'road')
+                                                       ['road'])
             intmap_future_road = self.gen_intensity_map(
                 pc_future_static, 'road')
 
@@ -95,17 +88,16 @@ class SemBEVGenerator(BEVGenerator):
 
             elevmap_future, _ = self.get_elevation_map(pc_future_static)
 
-            intmap_future_dynamic = self.gen_gridmap_count_map(
-                pc_future_dynamic)
-            intmap_future_dynamic /= np.max(intmap_future_dynamic)
+            # intmap_future_dynamic = self.gen_gridmap_count_map(
+            #     pc_future_dynamic)
+            # intmap_future_dynamic /= np.max(intmap_future_dynamic)
+            probmap_future_static_obj = self.gen_sem_probmap(
+                pc_future_static, dyn_obj_strs)
 
-            pc_full_dynamic, pc_full_static = self.partition_semantic_pc(
-                pc_full, dynamic_filter, self.sem_idx)
-            # out = self.static_obj_partitioning_by_elev(pc_full, ELEV_THESH,
-            #                                            LIDAR_ELEV_FROM_GROUND)
-            # pc_full_static, _, _, _ = out
+            _, pc_full_static = self.partition_semantic_pc(
+                pc_full, dynamic_state_filter, self.dyn_idx)
 
-            probmap_full_road = self.gen_sem_probmap(pc_full_static, 'road')
+            probmap_full_road = self.gen_sem_probmap(pc_full_static, ['road'])
             intmap_full_road = self.gen_intensity_map(pc_full_static, 'road')
 
             r_full, g_full, b_full = self.get_rgb_maps(pc_full_static)
@@ -115,8 +107,10 @@ class SemBEVGenerator(BEVGenerator):
 
             elevmap_full, _ = self.get_elevation_map(pc_full_static)
 
-            intmap_full_dynamic = self.gen_gridmap_count_map(pc_full_dynamic)
-            intmap_full_dynamic /= np.max(intmap_full_dynamic)
+            # intmap_full_dynamic = self.gen_gridmap_count_map(pc_full_dynamic)
+            # intmap_full_dynamic /= np.max(intmap_full_dynamic)
+            probmap_full_static_obj = self.gen_sem_probmap(
+                pc_full_static, dyn_obj_strs)
 
         # Warp all probability maps and trajectories
         if self.do_warp:
@@ -134,7 +128,7 @@ class SemBEVGenerator(BEVGenerator):
                 r_present,
                 g_present,
                 b_present,
-                intmap_present_dynamic,
+                probmap_present_static_obj,
                 elevmap_present,
             ]
             if pc_future is not None:
@@ -148,8 +142,8 @@ class SemBEVGenerator(BEVGenerator):
                 maps.append(r_full)
                 maps.append(g_full)
                 maps.append(b_full)
-                maps.append(intmap_future_dynamic)
-                maps.append(intmap_full_dynamic)
+                maps.append(probmap_future_static_obj)
+                maps.append(probmap_full_static_obj)
                 maps.append(elevmap_future)
                 maps.append(elevmap_full)
 
@@ -162,7 +156,7 @@ class SemBEVGenerator(BEVGenerator):
             r_present = maps[2]
             g_present = maps[3]
             b_present = maps[4]
-            intmap_present_dynamic = maps[5]
+            probmap_present_static_obj = maps[5]
             elevmap_present = maps[6]
 
             if pc_future is not None:
@@ -183,8 +177,8 @@ class SemBEVGenerator(BEVGenerator):
                 g_full = maps[15]
                 b_full = maps[16]
 
-                intmap_future_dynamic = maps[17]
-                intmap_full_dynamic = maps[18]
+                probmap_future_static_obj = maps[17]
+                probmap_full_static_obj = maps[18]
 
                 elevmap_future = maps[19]
                 elevmap_full = maps[20]
@@ -200,14 +194,15 @@ class SemBEVGenerator(BEVGenerator):
         probmap_present_road = probmap_present_road.astype(np.float16)
         rgb_present = rgb_present.astype(np.float16)
         intmap_present_road = intmap_present_road.astype(np.float16)
-        intmap_present_dynamic = intmap_present_dynamic.astype(np.float16)
+        probmap_present_static_obj = probmap_present_static_obj.astype(
+            np.float16)
         elevmap_present = elevmap_present.astype(np.float16)
         bev = {
             'road_present': probmap_present_road,
             'trajs_present': trajs_present,
             'intensity_present': intmap_present_road,
             'rgb_present': rgb_present,
-            'dynamic_present': intmap_present_dynamic,
+            'dynamic_present': probmap_present_static_obj,
             'elevation_present': elevmap_present,
         }
 
@@ -230,8 +225,10 @@ class SemBEVGenerator(BEVGenerator):
             intmap_full_road = intmap_full_road.astype(np.float16)
             rgb_future = rgb_future.astype(np.float16)
             rgb_full = rgb_full.astype(np.float16)
-            intmap_future_dynamic = intmap_future_dynamic.astype(np.float16)
-            intmap_full_dynamic = intmap_full_dynamic.astype(np.float16)
+            probmap_future_static_obj = probmap_future_static_obj.astype(
+                np.float16)
+            probmap_full_static_obj = probmap_full_static_obj.astype(
+                np.float16)
             elevmap_future = elevmap_future.astype(np.float16)
             elevmap_full = elevmap_full.astype(np.float16)
             bev.update({
@@ -243,8 +240,8 @@ class SemBEVGenerator(BEVGenerator):
                 'intensity_full': intmap_full_road,
                 'rgb_future': rgb_future,
                 'rgb_full': rgb_full,
-                'dynamic_future': intmap_future_dynamic,
-                'dynamic_full': intmap_full_dynamic,
+                'dynamic_future': probmap_future_static_obj,
+                'dynamic_full': probmap_full_static_obj,
                 'elevation_future': elevmap_future,
                 'elevation_full': elevmap_full,
             })

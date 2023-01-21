@@ -124,8 +124,12 @@ class BEVGenerator(ABC):
 
         transf_trajs = []
         for traj in trajs:
-            traj = self.geometric_transform(traj, rot_ang, trans_dx, trans_dy,
-                                            aug_view_size)
+            traj = self.geometric_transform(traj,
+                                            rot_ang,
+                                            trans_dx,
+                                            trans_dy,
+                                            aug_view_size,
+                                            is_traj=True)
             transf_trajs.append(traj)
         trajs = transf_trajs
 
@@ -185,9 +189,13 @@ class BEVGenerator(ABC):
 
         return bev
 
-    def geometric_transform(self, pc_mat: np.array, rot_ang: float,
-                            trans_dx: float, trans_dy: float,
-                            aug_view_size: float) -> np.array:
+    def geometric_transform(self,
+                            pc_mat: np.array,
+                            rot_ang: float,
+                            trans_dx: float,
+                            trans_dy: float,
+                            aug_view_size: float,
+                            is_traj: bool = False) -> np.array:
         '''
         Function to transform both point cloud and pose matrices.
 
@@ -196,6 +204,7 @@ class BEVGenerator(ABC):
             rot_ang:
             trans_dx:
             trans_dy:
+            is_traj: Crop points and include intersection points.
         '''
         # Rotation
         rot_mat = self.rotation_matrix_3d(rot_ang)
@@ -206,7 +215,10 @@ class BEVGenerator(ABC):
         pc_mat[:, 0] += trans_dx
         pc_mat[:, 1] += trans_dy
         # Zoom
-        pc_mat = self.crop_view(pc_mat, aug_view_size)
+        if is_traj:
+            pc_mat = self.crop_trajectory(pc_mat, aug_view_size)
+        else:
+            pc_mat = self.crop_view(pc_mat, aug_view_size)
         return pc_mat
 
     @staticmethod
@@ -227,16 +239,133 @@ class BEVGenerator(ABC):
 
         return pc_mat
 
-    def gen_sem_probmap(self, pc: np.array, sem_cls: str):
+    def crop_trajectory(self,
+                        traj: np.array,
+                        aug_view_size: float,
+                        thresh: float = 1e-4):
+        '''
+        Removes points outside the view frame with edge interpolation.
+
+        Args:
+            traj: (N, 3) [x, y, z]
+            thesh: Numerical accuracy of intesection points.
+        '''
+        bx0 = -0.5 * aug_view_size
+        by0 = -0.5 * aug_view_size
+        bx1 = 0.5 * aug_view_size
+        by1 = 0.5 * aug_view_size
+        bbox = [bx0, by0, bx1, by1]
+        new_traj = []
+        for idx in range(traj.shape[0] - 1):
+            pnt_0_x, pnt_0_y = list(traj[idx][:2])
+            pnt_1_x, pnt_1_y = list(traj[idx + 1][:2])
+
+            pnt_0_z = traj[idx][2]
+
+            pnt_0_in = self.point_in_box(pnt_0_x, pnt_0_y, bx0, by0, bx1, by1)
+            pnt_1_in = self.point_in_box(pnt_1_x, pnt_1_y, bx0, by0, bx1, by1)
+
+            # Case 1: Edge outside
+            if not pnt_0_in and not pnt_1_in:
+                continue
+            # Case 2: Edge inside
+            elif pnt_0_in and pnt_1_in:
+                new_traj.append([pnt_0_x, pnt_0_y, pnt_0_z])
+            # Case 3: Edge intersection (first in, second out)
+            elif pnt_0_in and not pnt_1_in:
+                new_traj.append([pnt_0_x, pnt_0_y, pnt_0_z])
+                # Intersection point
+                inter_x, inter_y, _ = self.cal_intersec_pnt(
+                    pnt_0_x, pnt_0_y, pnt_1_x, pnt_1_y, bbox)
+                new_traj.append([inter_x, inter_y, pnt_0_z])
+
+            # Case 4: Edge intersection (first out, second int)
+            elif not pnt_0_in and pnt_1_in:
+                # Intersection point
+                inter_x, inter_y, _ = self.cal_intersec_pnt(
+                    pnt_0_x, pnt_0_y, pnt_1_x, pnt_1_y, bbox, thresh)
+
+                new_traj.append([inter_x, inter_y, pnt_0_z])
+            else:
+                raise ValueError('Undefined trajectory points:\n',
+                                 f'    pnt_0: ({pnt_0_x, pnt_0_y})\n',
+                                 f'    pnt_1: ({pnt_1_x, pnt_1_y})')
+
+        # Handle entirely removed trajectories
+        if len(new_traj) == 0:
+            new_traj = np.zeros((0, 3))
+        else:
+            new_traj = np.array(new_traj)
+
+        return new_traj
+
+    @staticmethod
+    def point_in_box(pnt_x, pnt_y, box_x0, box_y0, box_x1, box_y1):
+        return (box_x0 < pnt_x and pnt_x < box_x1) and (box_y0 < pnt_y
+                                                        and pnt_y < box_y1)
+
+    def cal_intersec_pnt(self, x0, y0, x1, y1, bbox, thresh=1e-4):
+        '''
+        Finds the bounding box intersection point using a midpoint iterative
+        refinement appraoch.
+
+        NOTE: Presumes the line actually intersects the bbox!
+
+        Args:
+            x0:
+            y0:
+            x1:
+            y1:
+            bbox: [bx0, by0, bx1, by1]
+        '''
+        bx0, by0, bx1, by1 = bbox
+        diff = np.inf
+        iters = 0
+        while diff > thresh:
+            x_mid = 0.5 * (x0 + x1)
+            y_mid = 0.5 * (y0 + y1)
+
+            # If pnt0 is inside ==> pnt1 must be outside (and vice-versa)
+            pnt0_in = self.point_in_box(x0, y0, bx0, by0, bx1, by1)
+            mid_in = self.point_in_box(x_mid, y_mid, bx0, by0, bx1, by1)
+
+            # Middle pnt inside ==> Replace inside pnt
+            if mid_in:
+                if pnt0_in:
+                    diff = np.sqrt((x_mid - x0)**2 + (y_mid - y0)**2)
+                    x0 = x_mid
+                    y0 = y_mid
+                else:
+                    diff = np.sqrt((x_mid - x1)**2 + (y_mid - y1)**2)
+                    x1 = x_mid
+                    y1 = y_mid
+
+            # Middle pnt outside ==> Replace outside pnt
+            else:
+                if not pnt0_in:
+                    diff = np.sqrt((x_mid - x0)**2 + (y_mid - y0)**2)
+                    x0 = x_mid
+                    y0 = y_mid
+                else:
+                    diff = np.sqrt((x_mid - x1)**2 + (y_mid - y1)**2)
+                    x1 = x_mid
+                    y1 = y_mid
+
+            iters += 1
+
+        return x_mid, y_mid, iters
+
+    def gen_sem_probmap(self, pc: np.array, sem_clss: list):
         '''
         Generates a probabilistic map of a given semantic class modeled as a
         Dirichlet distribution for ever grid map element.
 
         Args:
             pc: dim (N, M) [x, y, ..., sem].
-            sem_cls: String specifying the semantic to extract (e.g. 'road').
+            sem_clss: List of string specifying the semantic to extract
+                      (e.g. ['road']).
         '''
-        sem_idxs = [self.sem_idxs[sem_cls]]
+        sem_idxs = [self.sem_idxs[sem_cls] for sem_cls in sem_clss]
         # Partition point cloud into 'semantic' and 'non-semantic' components
         pc_sem, pc_not_sem = self.partition_semantic_pc(
             pc, sem_idxs, self.sem_idx)
