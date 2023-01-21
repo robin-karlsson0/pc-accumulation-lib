@@ -53,16 +53,16 @@ class BEVGenerator(ABC):
 
     @abstractmethod
     def generate_bev(self, pc_present: np.array, pc_future: np.array,
-                     poses_present: np.array, poses_future: np.array):
+                     trajs_present: np.array, trajs_future: np.array):
         '''
         Implement this function to generate actual BEV representations from the
-        preprocessed semantic point cloud and poses.
+        preprocessed semantic point cloud and trajs.
         '''
         pass
 
     def generate(self,
                  pcs: dict,
-                 poses: dict,
+                 trajs: dict,
                  rot_ang: float = 0.,
                  trans_dx: float = 0.,
                  trans_dy: float = 0.,
@@ -72,46 +72,66 @@ class BEVGenerator(ABC):
         '''
         # Extract semantic point cloud and pose information
         pc_present, pc_future, pc_full = self.extract_pc_dict(pcs)
-        poses_present, poses_future, poses_full = self.extract_pose_dict(poses)
+        ego_trajs = self.extract_ego_traj_dict(trajs)
+        ego_traj_present, ego_traj_future, ego_traj_full = ego_trajs
+        other_trajs = self.extract_other_traj_dicts(trajs)
+        other_trajs_present, other_trajs_future, other_trajs_full = other_trajs
 
         aug_view_size = zoom_scalar * self.view_size
 
         if do_warping is False:
             rot_ang = 0.5 * np.pi
-            if len(poses_present) > 1:
-                dx = poses_present[-1][0] - poses_present[-2][0]
-                dy = poses_present[-1][1] - poses_present[-2][1]
+            if len(ego_traj_present) > 1:
+                dx = ego_traj_present[-1][0] - ego_traj_present[-2][0]
+                dy = ego_traj_present[-1][1] - ego_traj_present[-2][1]
                 rot_ang += np.arctan2(dy, dx)
             rot_ang = np.pi - rot_ang
 
-        pc_present, poses_present = self.preprocess_pc_and_poses(
-            pc_present, poses_present, rot_ang, trans_dx, trans_dy,
+        trajs_present = [ego_traj_present] + other_trajs_present
+
+        pc_present, trajs_present = self.preprocess_pc_and_trajs(
+            pc_present, trajs_present, rot_ang, trans_dx, trans_dy,
             aug_view_size)
 
         if pc_future is not None:
-            pc_future, poses_future = self.preprocess_pc_and_poses(
-                pc_future, poses_future, rot_ang, trans_dx, trans_dy,
+            trajs_future = [ego_traj_future] + other_trajs_future
+            pc_future, trajs_future = self.preprocess_pc_and_trajs(
+                pc_future, trajs_future, rot_ang, trans_dx, trans_dy,
                 aug_view_size)
 
-            pc_full, poses_full = self.preprocess_pc_and_poses(
-                pc_full, poses_full, rot_ang, trans_dx, trans_dy,
+            trajs_full = [ego_traj_full] + other_trajs_full
+            pc_full, trajs_full = self.preprocess_pc_and_trajs(
+                pc_full, trajs_full, rot_ang, trans_dx, trans_dy,
                 aug_view_size)
 
-        bev = self.generate_bev(pc_present, pc_future, pc_full, poses_present,
-                                poses_future, poses_full)
+        bev = self.generate_bev(pc_present, pc_future, pc_full, trajs_present,
+                                trajs_future, trajs_full)
 
         return bev
 
-    def preprocess_pc_and_poses(self, pc, poses, rot_ang, trans_dx, trans_dy,
+    def preprocess_pc_and_trajs(self, pc, trajs, rot_ang, trans_dx, trans_dy,
                                 aug_view_size):
         '''
         Applies transformations and converts to gridmap coordinates.
+
+        Args:
+            pc:
+            trajs: List of (N, 3) np.arrays with poses.
         '''
         # Apply transformations (rot, trans, zoom)
         pc = self.geometric_transform(pc, rot_ang, trans_dx, trans_dy,
                                       aug_view_size)
-        poses = self.geometric_transform(poses, rot_ang, trans_dx, trans_dy,
-                                         aug_view_size)
+
+        transf_trajs = []
+        for traj in trajs:
+            traj = self.geometric_transform(traj,
+                                            rot_ang,
+                                            trans_dx,
+                                            trans_dy,
+                                            aug_view_size,
+                                            is_traj=True)
+            transf_trajs.append(traj)
+        trajs = transf_trajs
 
         # Remove points above ego-vehicle height (for bridges, tunnels etc.)
         if self.height_filter is not None:
@@ -120,13 +140,13 @@ class BEVGenerator(ABC):
 
         # Metric to pixel coordinates
         pc = self.pos2grid(pc, aug_view_size)
-        poses = self.pos2grid(poses, aug_view_size)
+        trajs = [self.pos2grid(traj, aug_view_size) for traj in trajs]
 
-        return pc, poses
+        return pc, trajs
 
     def generate_rand_aug(self,
                           pcs: dict,
-                          poses: dict,
+                          trajs: dict,
                           do_warping: bool = True):
         '''
         '''
@@ -143,7 +163,7 @@ class BEVGenerator(ABC):
             zoom_scalar = self.zoom_thresh
         zoom_scalar = 1 + zoom_scalar
 
-        bev = self.generate(pcs, poses, rot_ang, trans_dx, trans_dy,
+        bev = self.generate(pcs, trajs, rot_ang, trans_dx, trans_dy,
                             zoom_scalar, do_warping)
 
         return bev
@@ -151,27 +171,31 @@ class BEVGenerator(ABC):
     def generate_multiproc(self, bev_gen_inputs):
         '''
         '''
-        pcs, poses = bev_gen_inputs
+        pcs, trajs = bev_gen_inputs
 
         if self.do_aug:
-            bev = self.generate_rand_aug(pcs, poses)
+            bev = self.generate_rand_aug(pcs, trajs)
         else:
-            bev = self.generate(pcs, poses)
+            bev = self.generate(pcs, trajs)
 
         return bev
 
     def generate_rand_aug_multiproc(self, bev_gen_inputs):
         '''
         '''
-        pcs, poses = bev_gen_inputs
+        pcs, trajs = bev_gen_inputs
 
-        bev = self.generate_rand_aug(pcs, poses, do_warping=True)
+        bev = self.generate_rand_aug(pcs, trajs, do_warping=True)
 
         return bev
 
-    def geometric_transform(self, pc_mat: np.array, rot_ang: float,
-                            trans_dx: float, trans_dy: float,
-                            aug_view_size: float) -> np.array:
+    def geometric_transform(self,
+                            pc_mat: np.array,
+                            rot_ang: float,
+                            trans_dx: float,
+                            trans_dy: float,
+                            aug_view_size: float,
+                            is_traj: bool = False) -> np.array:
         '''
         Function to transform both point cloud and pose matrices.
 
@@ -180,6 +204,7 @@ class BEVGenerator(ABC):
             rot_ang:
             trans_dx:
             trans_dy:
+            is_traj: Crop points and include intersection points.
         '''
         # Rotation
         rot_mat = self.rotation_matrix_3d(rot_ang)
@@ -190,7 +215,10 @@ class BEVGenerator(ABC):
         pc_mat[:, 0] += trans_dx
         pc_mat[:, 1] += trans_dy
         # Zoom
-        pc_mat = self.crop_view(pc_mat, aug_view_size)
+        if is_traj:
+            pc_mat = self.crop_trajectory(pc_mat, aug_view_size)
+        else:
+            pc_mat = self.crop_view(pc_mat, aug_view_size)
         return pc_mat
 
     @staticmethod
@@ -211,16 +239,133 @@ class BEVGenerator(ABC):
 
         return pc_mat
 
-    def gen_sem_probmap(self, pc: np.array, sem_cls: str):
+    def crop_trajectory(self,
+                        traj: np.array,
+                        aug_view_size: float,
+                        thresh: float = 1e-4):
+        '''
+        Removes points outside the view frame with edge interpolation.
+
+        Args:
+            traj: (N, 3) [x, y, z]
+            thesh: Numerical accuracy of intesection points.
+        '''
+        bx0 = -0.5 * aug_view_size
+        by0 = -0.5 * aug_view_size
+        bx1 = 0.5 * aug_view_size
+        by1 = 0.5 * aug_view_size
+        bbox = [bx0, by0, bx1, by1]
+        new_traj = []
+        for idx in range(traj.shape[0] - 1):
+            pnt_0_x, pnt_0_y = list(traj[idx][:2])
+            pnt_1_x, pnt_1_y = list(traj[idx + 1][:2])
+
+            pnt_0_z = traj[idx][2]
+
+            pnt_0_in = self.point_in_box(pnt_0_x, pnt_0_y, bx0, by0, bx1, by1)
+            pnt_1_in = self.point_in_box(pnt_1_x, pnt_1_y, bx0, by0, bx1, by1)
+
+            # Case 1: Edge outside
+            if not pnt_0_in and not pnt_1_in:
+                continue
+            # Case 2: Edge inside
+            elif pnt_0_in and pnt_1_in:
+                new_traj.append([pnt_0_x, pnt_0_y, pnt_0_z])
+            # Case 3: Edge intersection (first in, second out)
+            elif pnt_0_in and not pnt_1_in:
+                new_traj.append([pnt_0_x, pnt_0_y, pnt_0_z])
+                # Intersection point
+                inter_x, inter_y, _ = self.cal_intersec_pnt(
+                    pnt_0_x, pnt_0_y, pnt_1_x, pnt_1_y, bbox)
+                new_traj.append([inter_x, inter_y, pnt_0_z])
+
+            # Case 4: Edge intersection (first out, second int)
+            elif not pnt_0_in and pnt_1_in:
+                # Intersection point
+                inter_x, inter_y, _ = self.cal_intersec_pnt(
+                    pnt_0_x, pnt_0_y, pnt_1_x, pnt_1_y, bbox, thresh)
+
+                new_traj.append([inter_x, inter_y, pnt_0_z])
+            else:
+                raise ValueError('Undefined trajectory points:\n',
+                                 f'    pnt_0: ({pnt_0_x, pnt_0_y})\n',
+                                 f'    pnt_1: ({pnt_1_x, pnt_1_y})')
+
+        # Handle entirely removed trajectories
+        if len(new_traj) == 0:
+            new_traj = np.zeros((0, 3))
+        else:
+            new_traj = np.array(new_traj)
+
+        return new_traj
+
+    @staticmethod
+    def point_in_box(pnt_x, pnt_y, box_x0, box_y0, box_x1, box_y1):
+        return (box_x0 < pnt_x and pnt_x < box_x1) and (box_y0 < pnt_y
+                                                        and pnt_y < box_y1)
+
+    def cal_intersec_pnt(self, x0, y0, x1, y1, bbox, thresh=1e-4):
+        '''
+        Finds the bounding box intersection point using a midpoint iterative
+        refinement appraoch.
+
+        NOTE: Presumes the line actually intersects the bbox!
+
+        Args:
+            x0:
+            y0:
+            x1:
+            y1:
+            bbox: [bx0, by0, bx1, by1]
+        '''
+        bx0, by0, bx1, by1 = bbox
+        diff = np.inf
+        iters = 0
+        while diff > thresh:
+            x_mid = 0.5 * (x0 + x1)
+            y_mid = 0.5 * (y0 + y1)
+
+            # If pnt0 is inside ==> pnt1 must be outside (and vice-versa)
+            pnt0_in = self.point_in_box(x0, y0, bx0, by0, bx1, by1)
+            mid_in = self.point_in_box(x_mid, y_mid, bx0, by0, bx1, by1)
+
+            # Middle pnt inside ==> Replace inside pnt
+            if mid_in:
+                if pnt0_in:
+                    diff = np.sqrt((x_mid - x0)**2 + (y_mid - y0)**2)
+                    x0 = x_mid
+                    y0 = y_mid
+                else:
+                    diff = np.sqrt((x_mid - x1)**2 + (y_mid - y1)**2)
+                    x1 = x_mid
+                    y1 = y_mid
+
+            # Middle pnt outside ==> Replace outside pnt
+            else:
+                if not pnt0_in:
+                    diff = np.sqrt((x_mid - x0)**2 + (y_mid - y0)**2)
+                    x0 = x_mid
+                    y0 = y_mid
+                else:
+                    diff = np.sqrt((x_mid - x1)**2 + (y_mid - y1)**2)
+                    x1 = x_mid
+                    y1 = y_mid
+
+            iters += 1
+
+        return x_mid, y_mid, iters
+
+    def gen_sem_probmap(self, pc: np.array, sem_clss: list):
         '''
         Generates a probabilistic map of a given semantic class modeled as a
         Dirichlet distribution for ever grid map element.
 
         Args:
             pc: dim (N, M) [x, y, ..., sem].
-            sem_cls: String specifying the semantic to extract (e.g. 'road').
+            sem_clss: List of string specifying the semantic to extract
+                      (e.g. ['road']).
         '''
-        sem_idxs = [self.sem_idxs[sem_cls]]
+        sem_idxs = [self.sem_idxs[sem_cls] for sem_cls in sem_clss]
         # Partition point cloud into 'semantic' and 'non-semantic' components
         pc_sem, pc_not_sem = self.partition_semantic_pc(
             pc, sem_idxs, self.sem_idx)
@@ -522,6 +667,21 @@ class BEVGenerator(ABC):
         a_2 = (1.0 - a_1) / idx_max
         return (a_1, a_2)
 
+    def warp_trajs(self, trajs, a_1, a_2, b_1, b_2, i_mid, j_mid, i_warp,
+                   j_warp):
+        '''
+        Warp a set of trajectories using the same parameters.
+
+        Args:
+            trajs: List of np.array pose matrices (N,3).
+        '''
+        trajs_warped = []
+        for traj in trajs:
+            traj = self.warp_sparse_points(traj, a_1, a_2, b_1, b_2, i_mid,
+                                           j_mid, i_warp, j_warp)
+            trajs_warped.append(traj)
+        return trajs_warped
+
     @staticmethod
     def extract_pc_dict(pcs: dict):
         pc_past = pcs['pc_present']
@@ -530,11 +690,18 @@ class BEVGenerator(ABC):
         return pc_past, pc_future, pc_full
 
     @staticmethod
-    def extract_pose_dict(poses: dict):
-        poses_past = poses['poses_present']
-        poses_future = poses['poses_future']
-        poses_full = poses['poses_full']
-        return poses_past, poses_future, poses_full
+    def extract_ego_traj_dict(trajs: dict) -> tuple:
+        ego_traj_past = trajs['ego_traj_present']
+        ego_traj_future = trajs['ego_traj_future']
+        ego_traj_full = trajs['ego_traj_full']
+        return ego_traj_past, ego_traj_future, ego_traj_full
+
+    @staticmethod
+    def extract_other_traj_dicts(trajs: dict) -> tuple:
+        other_trajs_past = trajs['other_trajs_present']
+        other_trajs_future = trajs['other_trajs_future']
+        other_trajs_full = trajs['other_trajs_full']
+        return other_trajs_past, other_trajs_future, other_trajs_full
 
     @staticmethod
     def extract_aug_dict(augs: dict):

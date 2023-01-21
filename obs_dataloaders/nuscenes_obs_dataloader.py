@@ -2,7 +2,8 @@ import numpy as np
 from nuscenes.nuscenes import NuScenes
 
 from datasets.nuscenes_utils import (NuScenesCamera, NuScenesLidar,
-                                     homo_transform)
+                                     homo_transform, inst_centric_get_sweeps,
+                                     load_data_to_tensor)
 from obs_dataloaders.obs_dataloader import ObservationDataloader
 
 
@@ -44,6 +45,16 @@ class NuScenesDataloader(ObservationDataloader):
                 sample = self.nusc.get('sample', sample_token)
                 sample_token = sample['next']
 
+        # PC matrix column indices
+        self.int_idx = 3
+        self.sweep_idx = 5
+        self.inst_idx = 6
+        self.cls_idx = 7
+
+        # Point cloud range to extract (use large enough value)
+        VAL = 1000
+        self.pc_range = [-VAL, -VAL, -VAL, VAL, VAL, VAL]
+
     def __len__(self):
         return len(self.sample_tokens)
 
@@ -54,36 +65,76 @@ class NuScenesDataloader(ObservationDataloader):
         Returns:
             obs (dict):
                 images (list[PIL]):
-                pc (np.ndarray): (N, 3+2[+1]) - X, Y, Z in EGO VEHICLE, pixel_u, pixel_v, [time-lag w.r.t keyframe]
-                pc_cam_idx (np.ndarray): (N,) - index of camera where each point projected onto
-                ego_at_lidar_ts (np.ndarray): (4, 4) ego vehicle pose w.r.t global frame @ timestamp of lidar
-                meta (dict)
+                pc (np.ndarray): (N, 7)
+                    [0] --> [2]: (x, y, z) in ego vehicle frame
+                    [3]        : Intensity
+                    [4] --> [5]: Pixel (u, v) coordinates
+                    [6]        : Object instance idx
+                pc_cam_idx (np.ndarray): (N,) index of camera where each point
+                                         is projected onto
+                ego_at_lidar_ts (np.ndarray): (4, 4) ego vehicle pose w.r.t
+                                              global frame @ timestamp of lidar
+                meta (dict):
+                inst_tokens (list[str]): Object identifier across samples
+                inst_cls (list[int]): Object instance class (0: car, etc.)
+                inst_center (list[np.array]): Object (x,y,z) in global frame
         """
+        sample_token = self.sample_tokens[idx]
         obs = dict()
-        sample = self.nusc.get('sample', self.sample_tokens[idx])
+        sample = self.nusc.get('sample', sample_token)
         obs['meta'] = {
             'sample_token': self.sample_tokens[idx],
             'scene_token': sample['scene_token'],
             'cam_channels': self.cam_channels
         }
 
-        # ##############################################
-        # get pointcloud & map it to EGO VEHICLE frame
-        # ##############################################
+        #################################################
+        # Get pointcloud & map it to EGO VEHICLE frame
+        #################################################
+        map_point_feat2idx = {
+            'sweep_idx': self.sweep_idx,
+            'inst_idx': self.inst_idx,
+            'cls_idx': self.cls_idx,
+        }
+        cfg = {
+            'n_sweeps':
+            self.num_sweeps,
+            'center_radius':
+            2.0,
+            'in_box_tolerance':
+            5e-2,
+            'return_instances_last_box':
+            True,
+            'point_cloud_range':
+            self.pc_range,
+            'detection_classes':
+            ('car', 'truck', 'construction_vehicle', 'bus', 'trailer',
+             'motorcycle', 'bicycle', 'pedestrian'),  # Movable classes
+            'map_point_feat2idx':
+            map_point_feat2idx
+        }
+        out = inst_centric_get_sweeps(self.nusc, sample_token, **cfg)
+        load_data_to_tensor(out)
+        pc = out['points']  # In lidar frame
+
         lidar_sensor = NuScenesLidar(
             self.nusc, self.nusc.get('sample_data',
                                      sample['data']['LIDAR_TOP']))
         obs['ego_at_lidar_ts'] = lidar_sensor.glob_from_ego
-        pc = lidar_sensor.get_pointcloud(self.nusc, sample,
-                                         self.num_sweeps)  # in LiDAR frame
-        pc_time = pc[:, [-1]] if pc.shape[1] > 3 else None
         pc_in_ego = homo_transform(lidar_sensor.ego_from_self,
                                    pc[:, :3])  # (N, 3)
 
-        # #######################
-        # project pc to 6 images
-        # #######################
-        # NOTE: for pts projected onto 2 images, their pixel coords take value of the last projection (i.e. overwritten)
+        # Intensity
+        pc_int = pc[:, self.int_idx:self.int_idx + 1]
+
+        # Instance idx
+        pc_inst = pc[:, self.inst_idx:self.inst_idx + 1]
+
+        ############################
+        #  Project pc to 6 images
+        ############################
+        # NOTE: for pts projected onto 2 images, their pixel coords take value
+        # of the last projection (i.e. overwritten)
         pc_in_glob = homo_transform(lidar_sensor.glob_from_ego,
                                     pc_in_ego)  # (N, 3)
         cameras = [
@@ -104,14 +155,15 @@ class NuScenesDataloader(ObservationDataloader):
             pc_uv[mask_in_img] = uv[mask_in_img]
             pc_cam_idx[mask_in_img] = j
 
-        # Intensity
-        pc_int = pc[:, 3:4]
-
         obs['pc_cam_idx'] = pc_cam_idx
-        if pc_time is not None:
-            obs['pc'] = np.concatenate([pc_in_ego, pc_int, pc_uv, pc_time],
-                                       axis=1)
-        else:
-            obs['pc'] = np.concatenate([pc_in_ego, pc_int, pc_uv], axis=1)
+
+        obs['pc'] = np.concatenate([pc_in_ego, pc_int, pc_uv, pc_inst], axis=1)
+
+        #######################
+        #  GT bounding boxes
+        #######################
+        obs['inst_tokens'] = out['instances_token']
+        obs['inst_cls'] = [int(cls.item()) for cls in out['instances_name']]
+        obs['inst_center'] = out['instances_center']
 
         return obs

@@ -27,6 +27,8 @@ Ref: https://pytorch.org/get-started/locally/
 
 ```
 pip install nuscenes-devkit
+pip install einops
+pip install lovely-tensors
 ```
 
 2. Change path to KITTI-360 datasets in the run scripts (`run_pc_accum.py` and `run_bev_gen.py`)

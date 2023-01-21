@@ -38,17 +38,27 @@ class NuScenesSemanticPointCloudAccumulator(SemanticPointCloudAccumulator):
 
     def integrate(self, observations: list):
         """
-        Integrates a sequence of K observations into the common vector space (i.e., a world frame which can be
-        different to the global frame of NuScenes, for example 1st ego vehicle frame)
-        Points in vector space are defined by [X, Y, Z] coordinates.
+        Integrates a sequence of K observations into the common vector space
+        (i.e., a world frame which can be different to the global frame of
+        NuScenes, for example 1st ego vehicle frame).
+
+        Points in vector space are defined by (x,y,z) coordinates.
+
         Args:
-            observations: List of K dict. One dict has the following keys
+            observations: List of K dict. One 'obs' dict has the following keys
                 images (list[PIL]):
-                pc (np.ndarray): (N, 3+2[+1]) - X, Y, Z in EGO VEHICLE, pixel_u, pixel_v, [time-lag w.r.t keyframe]
-                pc_cam_idx (np.ndarray): (N,) - index of camera where each point projected onto
-                ego_at_lidar_ts (np.ndarray): (4, 4) ego vehicle pose w.r.t global frame @ timestamp of lidar
+                pc (np.ndarray): (N, 7)
+                    [0] --> [2]: (x, y, z) in ego vehicle frame
+                    [3]        : Intensity
+                    [4] --> [5]: Pixel (u, v) coordinates
+                    [6]        : Object instance idx
+                pc_cam_idx (np.ndarray): (N,) index of camera where each
+                                         point projected onto
+                ego_at_lidar_ts (np.ndarray): (4, 4) ego vehicle pose w.r.t
+                                              global frame @ timestamp of lidar
                 cam_channels (list[str]):
         """
+        raise NotImplementedError('Check that new obs_dataloader works')
         obs = observations[0]
         rgbs = obs['images']
         pc = obs['pc']
