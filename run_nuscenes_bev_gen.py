@@ -1,5 +1,6 @@
 import argparse
 import os
+from time import ctime
 
 import matplotlib as mpl
 import numpy as np
@@ -232,10 +233,9 @@ if __name__ == '__main__':
                 continue
             previous_idx = present_idx
 
-            print(
-                f'{sample_idx*batch_size} | {bev_count} |',
-                f' back {incr_path_dists[present_idx]:.1f} | front {fut_dist:.1f}'
-            )
+            print(f'{ctime()} | {bev_count} |',
+                  f' back {incr_path_dists[present_idx]:.1f} | ',
+                  f'front {fut_dist:.1f}')
 
             bevs = sem_pc_accum.generate_bev(present_idx,
                                              bevs_per_sample,
