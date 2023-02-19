@@ -14,6 +14,10 @@ from obs_dataloaders.nuscenes_obs_dataloader import NuScenesDataloader
 mpl.use('agg')  # Must be before pyplot import
 
 
+def space_sep_list(lst):
+    return ', '.join(lst)
+
+
 def dist(pose_0: np.array, pose_1: np.array):
     '''
         Returns the Euclidean distance between two poses.
@@ -165,14 +169,17 @@ if __name__ == '__main__':
 
         # Skip scene if any attributes are invalid by specified attribute being
         # a substring in a scene description attribute
+        skip_attrs = []
         for skip_attr in skip_attributes:
             for scene_attr in scene_attributes:
                 if skip_attr in scene_attr:
                     scene_invalid = True
+                    skip_attrs.append(skip_attr)
                     break
 
         if scene_invalid:
-            print(f'Skip scene id {scene_id} ({skip_attr})')
+            print(
+                f'    Skip scene id {scene_id} ({space_sep_list(skip_attrs)})')
             continue
 
         # Initialize accumulator
