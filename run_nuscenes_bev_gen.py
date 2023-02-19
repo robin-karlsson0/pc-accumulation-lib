@@ -157,6 +157,12 @@ if __name__ == '__main__':
         scene['description'] = scene['description'].lower()
         scene_attributes = scene['description'].replace(', ', ',').split(',')
 
+        # Add 'location' as scene attribute
+        log_token = scene['log_token']
+        log = nusc.get('log', log_token)
+        loc = log['location']  # e.g. 'singapore_onenorth'
+        scene_attributes.append(loc)
+
         # Skip scene if any attributes are invalid by specified attribute being
         # a substring in a scene description attribute
         for skip_attr in skip_attributes:
