@@ -1,31 +1,28 @@
 import numpy as np
 from nuscenes.nuscenes import NuScenes
+from pyquaternion import Quaternion
 
 from datasets.nuscenes_utils import (NuScenesCamera, NuScenesLidar,
                                      homo_transform, inst_centric_get_sweeps,
-                                     load_data_to_tensor)
+                                     load_data_to_tensor,
+                                     render_ego_centric_map)
 from obs_dataloaders.obs_dataloader import ObservationDataloader
 
 
 class NuScenesDataloader(ObservationDataloader):
 
-    def __init__(self,
-                 dataroot,
-                 scene_ids=None,
-                 batch_size=1,
-                 num_sweeps=5,
-                 version='v1.0-mini'):
+    def __init__(self, nusc, scene_ids=None, batch_size=1, num_sweeps=5):
         """
         Args:
-            dataroot (str):
+            nusc: Instance of NuScenes
             scene_ids (list): indicies of chosen scenes (1 scenes == 1 sequence in KITTI term)
             batch_size (int):
             num_sweeps (int): number of non-keyframe pointclouds prior to a keyframe pointcloud that are
                 merged to the keyframe one. Default: 5
             version (str):
         """
-        super().__init__(dataroot, batch_size)
-        self.nusc = NuScenes(dataroot=dataroot, version=version, verbose=False)
+        super().__init__(None, batch_size)
+        self.nusc = nusc
         self.num_sweeps = num_sweeps
         self.cam_channels = [
             'CAM_FRONT', 'CAM_FRONT_LEFT', 'CAM_FRONT_RIGHT', 'CAM_BACK',
@@ -39,6 +36,51 @@ class NuScenesDataloader(ObservationDataloader):
         for scene_idx in scene_ids:
             scene = self.nusc.scene[scene_idx]
             sample_token = scene['first_sample_token']
+            #            # Test code for extracting map
+            #            sample = self.nusc.get('sample', sample_token)
+            #
+            #            # TMP
+            #            sd_record = self.nusc.get('sample_data',
+            #                                      sample['data']['LIDAR_TOP'])
+            #            sample = self.nusc.get('sample', sample_token)
+            #            scene = self.nusc.get('scene', sample['scene_token'])
+            #            log = self.nusc.get('log', scene['log_token'])
+            #            map_ = self.nusc.get('map', log['map_token'])  # dict
+            #            map_mask = map_['mask']  # nuscenes.utils.map_mask.MapMask object
+            #            pose = self.nusc.get('ego_pose', sd_record['ego_pose_token'])
+            #            map = render_ego_centric_map(map_mask, pose)
+            #
+            #            from nuscenes.map_expansion.map_api import NuScenesMap
+            #            nusc_map = NuScenesMap(dataroot='/home/robin/datasets/nuscenes',
+            #                                   map_name='singapore-onenorth')
+            #
+            #            ego_center_x, ego_center_y, _ = pose['translation']
+            #            patch_box = (ego_center_x, ego_center_y, 80, 80)  # [m]
+            #
+            #            ypr_rad = Quaternion(pose['rotation']).yaw_pitch_roll
+            #            yaw_deg = -math.degrees(ypr_rad[0])
+            #            # Make forward direction up by rotating 90 deg
+            #            # TODO: Confirm this is true
+            #            yaw_deg += 45 + 90
+            #
+            #            patch_angle = yaw_deg  # 248  # Default orientation where North is up
+            #            layer_names = ['drivable_area', 'walkway']
+            #            canvas_size = (256, 256)  # [px]
+            #            # fig, ax = nusc_map.render_map_mask(patch_box, patch_angle, layer_names, canvas_size, figsize=(12,4), n_row=1)
+            #            layers = nusc_map.get_map_mask(patch_box,
+            #                                           patch_angle,
+            #                                           layer_names,
+            #                                           canvas_size=(256, 256))
+            #
+            #            map = np.zeros(canvas_size)
+            #            for layer in layers:
+            #                map[layer == 1] = np.max(map) + 1
+            #
+            #            import matplotlib.pyplot as plt
+            #            plt.imshow(map)
+            #            plt.gca().invert_yaxis()
+            #            plt.show()
+
             while sample_token != '':
                 self.sample_tokens.append(sample_token)
                 # move on

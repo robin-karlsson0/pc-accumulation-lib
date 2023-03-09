@@ -211,7 +211,7 @@ if __name__ == '__main__':
         num_sweeps = 1
         scene_ids = [scene_id]
         dataloader = NuScenesDataloader(
-            args.nuscenes_path,
+            nusc,
             scene_ids,
             args.accum_batch_size,
             num_sweeps,
