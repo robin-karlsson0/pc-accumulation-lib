@@ -151,9 +151,9 @@ if __name__ == '__main__':
     skip_attributes = args.skip_attr
     nusc = NuScenes(dataroot=args.nuscenes_path, version=args.nuscenes_version)
 
-    for scene_id in range(args.start_scene_idx, args.end_scene_idx):
+    print(f'Skip attributes: {skip_attributes}')
 
-        print(f'Processing scene id {scene_id}')
+    for scene_id in range(args.start_scene_idx, args.end_scene_idx):
 
         # Create a list of attribute strings to check validity of scene
         scene_invalid = False
@@ -167,6 +167,9 @@ if __name__ == '__main__':
         loc = log['location']  # e.g. 'singapore_onenorth'
         scene_attributes.append(loc)
 
+        print(f'Processing scene id {scene_id} | {loc}')
+        print(f'\tScene attributes: {scene_attributes}')
+
         # Skip scene if any attributes are invalid by specified attribute being
         # a substring in a scene description attribute
         skip_attrs = []
@@ -178,8 +181,7 @@ if __name__ == '__main__':
                     break
 
         if scene_invalid:
-            print(
-                f'    Skip scene id {scene_id} ({space_sep_list(skip_attrs)})')
+            print(f'\tSkip scene id {scene_id} ({space_sep_list(skip_attrs)})')
             continue
 
         # Initialize accumulator
@@ -246,7 +248,7 @@ if __name__ == '__main__':
                 continue
             previous_idx = present_idx
 
-            print(f'{ctime()} | {bev_count} |',
+            print(f'\t{ctime()} | {bev_count} |',
                   f' back {incr_path_dists[present_idx]:.1f} | ',
                   f'front {fut_dist:.1f}')
 
