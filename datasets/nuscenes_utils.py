@@ -1,3 +1,4 @@
+import math
 import os.path as osp
 from abc import ABC
 
@@ -541,3 +542,67 @@ def load_data_to_tensor(batch_dict):
             batch_dict[key] = torch.from_numpy(val).int()
         else:
             batch_dict[key] = torch.from_numpy(val).float()
+
+
+def render_ego_centric_map(map_mask, pose, axes_limit: float = 40) -> np.array:
+    """
+    Render map centered around the associated ego pose.
+
+    Output size is proportional to 'axes_limit' and constant resolution 20
+    [px/m].
+        Ex: 40 [m] * 20 [px/m] = 800 [m]
+
+    # Get data.
+        sd_record = self.nusc.get('sample_data', sample_data_token)
+        sample = self.nusc.get('sample', sd_record['sample_token'])
+        scene = self.nusc.get('scene', sample['scene_token'])
+        log = self.nusc.get('log', scene['log_token'])
+        map_ = self.nusc.get('map', log['map_token'])
+        map_mask = map_['mask']
+        pose = self.nusc.get('ego_pose', sd_record['ego_pose_token'])
+
+    :param sample_data_token: Sample_data token.
+    :param axes_limit: Axes limit measured in meters.
+    :param ax: Axes onto which to render.
+
+    Ref: NuScenesExplorer.render_ego_centric_map()
+    """
+
+    def crop_image(image: np.array, x_px: int, y_px: int,
+                   axes_limit_px: int) -> np.array:
+        x_min = int(x_px - axes_limit_px)
+        x_max = int(x_px + axes_limit_px)
+        y_min = int(y_px - axes_limit_px)
+        y_max = int(y_px + axes_limit_px)
+
+        cropped_image = image[y_min:y_max, x_min:x_max]
+
+        return cropped_image
+
+    # Retrieve and crop mask.
+    pixel_coords = map_mask.to_pixel_coords(pose['translation'][0],
+                                            pose['translation'][1])
+    scaled_limit_px = int(axes_limit * (1.0 / map_mask.resolution))
+    mask_raster = map_mask.mask()
+    cropped = crop_image(mask_raster, pixel_coords[0], pixel_coords[1],
+                         int(scaled_limit_px * math.sqrt(2)))
+
+    # Rotate image.
+    ypr_rad = Quaternion(pose['rotation']).yaw_pitch_roll
+    yaw_deg = -math.degrees(ypr_rad[0])
+    # Make forward direction up by rotating 90 deg
+    # TODO: Confirm this is true
+    yaw_deg += 90
+    rotated_cropped = np.array(Image.fromarray(cropped).rotate(yaw_deg))
+
+    # Crop image.
+    ego_centric_map = crop_image(rotated_cropped,
+                                 int(rotated_cropped.shape[1] / 2),
+                                 int(rotated_cropped.shape[0] / 2),
+                                 scaled_limit_px)
+
+    # Set background to white and foreground (semantic prior) to gray.
+    ego_centric_map[ego_centric_map == map_mask.foreground] = 125
+    ego_centric_map[ego_centric_map == map_mask.background] = 255
+
+    return ego_centric_map
