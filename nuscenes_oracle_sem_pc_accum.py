@@ -3,6 +3,7 @@ from multiprocessing import Pool
 import numpy as np
 import open3d as o3d
 
+from datasets.nuscenes_lanemap import get_centerlines
 from datasets.nuscenes_utils import homo_transform, pts_feat_from_img
 from sem_pc_accum import SemanticPointCloudAccumulator
 
@@ -15,7 +16,10 @@ class NuScenesOracleSemanticPointCloudAccumulator(SemanticPointCloudAccumulator
                  semseg_filters=None,
                  sem_idxs=None,
                  use_gt_sem=None,
-                 bev_params=None):
+                 bev_params=None,
+                 loc=None,
+                 get_gt_lanes=False,
+                 dataroot=None):
         """
         Semantic point cloud accumulator compatible with NuScenes GT ego pose
         annotations (i.e. perfect acccumulation without ICP).
@@ -44,6 +48,9 @@ class NuScenesOracleSemanticPointCloudAccumulator(SemanticPointCloudAccumulator
             semseg_filters (list[int]): classes that are removed
             sem_idxs (dict): mapping semseg class to str
             bev_params (dict):
+            loc (str): map
+            get_gt_lanes: Flag for processing and storing GT lanes in samples
+            dataroot: Path to NuScenes dataset root directory
         """
         super().__init__(None, None, semseg_onnx_path, semseg_filters,
                          sem_idxs, use_gt_sem, bev_params)
@@ -83,6 +90,16 @@ class NuScenesOracleSemanticPointCloudAccumulator(SemanticPointCloudAccumulator
 
         self.track_inst_clss = [0, 1, 2, 3, 5]  # NOTE: Skips 'trailer'
 
+        # Keeping record of global coordinate (i.e. map coordinates)
+        self.map = loc
+        self.ego_global_xs = []
+        self.ego_global_ys = []
+
+        # Store GT lane map
+        self.get_gt_lanes = get_gt_lanes
+        if self.get_gt_lanes:
+            self.gt_lane_poses = get_centerlines(dataroot, loc)
+
     def integrate(self, observations: list):
         """
         Integrates a sequence of K observations into the common vector space
@@ -111,9 +128,17 @@ class NuScenesOracleSemanticPointCloudAccumulator(SemanticPointCloudAccumulator
         pc = obs['pc']
         pc_cam_idx = obs['pc_cam_idx']
         T_ego_global = obs['ego_at_lidar_ts']
+        ego_global_x = obs['ego_global_x']
+        ego_global_y = obs['ego_global_y']
 
         if self.T_global_world is None:
             self.T_global_world = np.linalg.inv(T_ego_global)
+
+            if self.get_gt_lanes:
+                self.gt_lane_poses = [
+                    homo_transform(self.T_global_world, lane)
+                    for lane in self.gt_lane_poses
+                ]
 
         sem_pc, pose, semsegs = self.obs2sem_vec_space(rgbs, pc, pc_cam_idx,
                                                        T_ego_global,
@@ -123,6 +148,9 @@ class NuScenesOracleSemanticPointCloudAccumulator(SemanticPointCloudAccumulator
         self.poses.append(pose)
         self.rgbs.append(rgbs)
         self.semsegs.append(semsegs)
+
+        self.ego_global_xs.append(ego_global_x)
+        self.ego_global_ys.append(ego_global_y)
 
         ###############################################
         #  Fake object detection and tracking system
@@ -484,6 +512,10 @@ class NuScenesOracleSemanticPointCloudAccumulator(SemanticPointCloudAccumulator
         pcs.update({'pc_present': pc_present})
         trajs.update({'ego_traj_present': ego_traj_present})
         trajs.update({'other_trajs_present': other_trajs_present})
+
+        if self.get_gt_lanes:
+            gt_lanes = [lane - bev_frame_coords for lane in self.gt_lane_poses]
+            trajs.update({'gt_lanes': gt_lanes})
 
         if gen_future:
             other_trajs_future = other_trajs[1]

@@ -208,4 +208,13 @@ class NuScenesDataloader(ObservationDataloader):
         obs['inst_cls'] = [int(cls.item()) for cls in out['instances_name']]
         obs['inst_center'] = out['instances_center']
 
+        ###################################################################
+        #  Ego vehicle global coordinate position (i.e. map coordinates)
+        ###################################################################
+        sample_data = self.nusc.get('sample_data', sample['data']['LIDAR_TOP'])
+        pose = self.nusc.get('ego_pose', sample_data['ego_pose_token'])
+        ego_global_x, ego_global_y, _ = pose['translation']
+        obs['ego_global_x'] = ego_global_x
+        obs['ego_global_y'] = ego_global_y
+
         return obs

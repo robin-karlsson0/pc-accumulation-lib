@@ -34,9 +34,14 @@ class SemBEVGenerator(BEVGenerator):
 
         self.rgb_fill = rgb_fill
 
-    def generate_bev(self, pc_present: np.array, pc_future: np.array,
-                     pc_full: np.array, trajs_present: np.array,
-                     trajs_future: np.array, trajs_full: np.array):
+    def generate_bev(self,
+                     pc_present: np.array,
+                     pc_future: np.array,
+                     pc_full: np.array,
+                     trajs_present: np.array,
+                     trajs_future: np.array,
+                     trajs_full: np.array,
+                     gt_lane_trajs: np.array = None):
         '''
         Args:
             pc_present: Semantic point cloud matrix w. dim (N, 8)
@@ -45,6 +50,7 @@ class SemBEVGenerator(BEVGenerator):
             trajs_present: List of pose matrices w. dim (N, 3) [x,y,z]
             trajs_future:
             trajs_full:
+            gt_lane_trajs: List of pose matrices w. dim (N, 3) [x,y,z]
         '''
         dynamic_state_filter = [1]
         dyn_obj_strs = ['car', 'truck', 'bus', 'motorcycle']
@@ -183,6 +189,11 @@ class SemBEVGenerator(BEVGenerator):
                 elevmap_future = maps[19]
                 elevmap_full = maps[20]
 
+            if gt_lane_trajs is not None:
+                gt_lane_trajs = self.warp_trajs(gt_lane_trajs, a_1, a_2, b_1,
+                                                b_2, i_mid, j_mid, i_warp,
+                                                j_warp)
+
         # Transform intensity map to more discriminative range
         intmap_present_road = self.road_marking_transform(
             intmap_present_road, self.int_scaler, self.int_sep_scaler,
@@ -246,6 +257,9 @@ class SemBEVGenerator(BEVGenerator):
                 'elevation_full': elevmap_full,
             })
 
+        if gt_lane_trajs is not None:
+            bev.update({'gt_lanes': gt_lane_trajs})
+
         return bev
 
     def viz_bev(self, bev, file_path, rgbs=[], semsegs=[]):
@@ -296,48 +310,111 @@ class SemBEVGenerator(BEVGenerator):
             plt.imshow(present_road, vmin=0, vmax=1)
             for traj in trajs_present:
                 plt.plot(traj[:, 0], H - traj[:, 1], 'r-')
+                if traj.shape[0] < 2:
+                    continue
+                x = traj[-2, 0]
+                y = H - traj[-2, 1]
+                dx = traj[-1, 0] - x
+                dy = H - traj[-1, 1] - y
+                plt.arrow(x, y, dx, dy, head_width=4, color='r')
 
             plt.subplot(num_rows, num_cols, 2)
             plt.imshow(future_road, vmin=0, vmax=1)
             for traj in trajs_future:
                 plt.plot(traj[:, 0], H - traj[:, 1], 'r-')
+                if traj.shape[0] < 2:
+                    continue
+                x = traj[-2, 0]
+                y = H - traj[-2, 1]
+                dx = traj[-1, 0] - x
+                dy = H - traj[-1, 1] - y
+                plt.arrow(x, y, dx, dy, head_width=4, color='r')
 
             plt.subplot(num_rows, num_cols, 3)
             plt.imshow(full_road, vmin=0, vmax=1)
             for traj in trajs_full:
                 plt.plot(traj[:, 0], H - traj[:, 1], 'r-')
+                if traj.shape[0] < 2:
+                    continue
+                x = traj[-2, 0]
+                y = H - traj[-2, 1]
+                dx = traj[-1, 0] - x
+                dy = H - traj[-1, 1] - y
+                plt.arrow(x, y, dx, dy, head_width=4, color='r')
 
             # Dynamic counts
             plt.subplot(num_rows, num_cols, 4)
             plt.imshow(present_dynamic, vmin=0, vmax=1)
             for traj in trajs_present:
                 plt.plot(traj[:, 0], H - traj[:, 1], 'r-')
+                if traj.shape[0] < 2:
+                    continue
+                x = traj[-2, 0]
+                y = H - traj[-2, 1]
+                dx = traj[-1, 0] - x
+                dy = H - traj[-1, 1] - y
+                plt.arrow(x, y, dx, dy, head_width=4, color='r')
 
             plt.subplot(num_rows, num_cols, 5)
             plt.imshow(future_dynamic, vmin=0, vmax=1)
             for traj in trajs_future:
                 plt.plot(traj[:, 0], H - traj[:, 1], 'r-')
+                if traj.shape[0] < 2:
+                    continue
+                x = traj[-2, 0]
+                y = H - traj[-2, 1]
+                dx = traj[-1, 0] - x
+                dy = H - traj[-1, 1] - y
+                plt.arrow(x, y, dx, dy, head_width=4, color='r')
 
             plt.subplot(num_rows, num_cols, 6)
             plt.imshow(full_dynamic, vmin=0, vmax=1)
             for traj in trajs_full:
                 plt.plot(traj[:, 0], H - traj[:, 1], 'r-')
+                if traj.shape[0] < 2:
+                    continue
+                x = traj[-2, 0]
+                y = H - traj[-2, 1]
+                dx = traj[-1, 0] - x
+                dy = H - traj[-1, 1] - y
+                plt.arrow(x, y, dx, dy, head_width=4, color='r')
 
             # Intensity
             plt.subplot(num_rows, num_cols, num_cols + 1)
             plt.imshow(present_intensity, vmin=0, vmax=1)
             for traj in trajs_present:
                 plt.plot(traj[:, 0], H - traj[:, 1], 'r-')
+                if traj.shape[0] < 2:
+                    continue
+                x = traj[-2, 0]
+                y = H - traj[-2, 1]
+                dx = traj[-1, 0] - x
+                dy = H - traj[-1, 1] - y
+                plt.arrow(x, y, dx, dy, head_width=4, color='r')
 
             plt.subplot(num_rows, num_cols, num_cols + 2)
             plt.imshow(future_intensity, vmin=0, vmax=1)
             for traj in trajs_future:
                 plt.plot(traj[:, 0], H - traj[:, 1], 'r-')
+                if traj.shape[0] < 2:
+                    continue
+                x = traj[-2, 0]
+                y = H - traj[-2, 1]
+                dx = traj[-1, 0] - x
+                dy = H - traj[-1, 1] - y
+                plt.arrow(x, y, dx, dy, head_width=4, color='r')
 
             plt.subplot(num_rows, num_cols, num_cols + 3)
             plt.imshow(full_intensity, vmin=0, vmax=1)
             for traj in trajs_full:
                 plt.plot(traj[:, 0], H - traj[:, 1], 'r-')
+                if traj.shape[0] < 2:
+                    continue
+                x = traj[-2, 0]
+                y = H - traj[-2, 1]
+                dx = traj[-1, 0] - x
+                dy = H - traj[-1, 1] - y
+                plt.arrow(x, y, dx, dy, head_width=4, color='r')
 
             # Elevation
             if self.height_filter is not None:
@@ -348,32 +425,88 @@ class SemBEVGenerator(BEVGenerator):
             plt.imshow(present_elevation, vmin=-0.5, vmax=elev_thresh)
             for traj in trajs_present:
                 plt.plot(traj[:, 0], H - traj[:, 1], 'r-')
+                if traj.shape[0] < 2:
+                    continue
+                x = traj[-2, 0]
+                y = H - traj[-2, 1]
+                dx = traj[-1, 0] - x
+                dy = H - traj[-1, 1] - y
+                plt.arrow(x, y, dx, dy, head_width=4, color='r')
 
             plt.subplot(num_rows, num_cols, num_cols + 5)
             plt.imshow(future_elevation, vmin=-0.5, vmax=elev_thresh)
             for traj in trajs_future:
                 plt.plot(traj[:, 0], H - traj[:, 1], 'r-')
+                if traj.shape[0] < 2:
+                    continue
+                x = traj[-2, 0]
+                y = H - traj[-2, 1]
+                dx = traj[-1, 0] - x
+                dy = H - traj[-1, 1] - y
+                plt.arrow(x, y, dx, dy, head_width=4, color='r')
 
             plt.subplot(num_rows, num_cols, num_cols + 6)
             plt.imshow(full_elevation, vmin=-0.5, vmax=elev_thresh)
             for traj in trajs_full:
                 plt.plot(traj[:, 0], H - traj[:, 1], 'r-')
+                if traj.shape[0] < 2:
+                    continue
+                x = traj[-2, 0]
+                y = H - traj[-2, 1]
+                dx = traj[-1, 0] - x
+                dy = H - traj[-1, 1] - y
+                plt.arrow(x, y, dx, dy, head_width=4, color='r')
 
             # RGB
             plt.subplot(num_rows, num_cols, 2 * num_cols + 1)
             plt.imshow(present_rgb)
             for traj in trajs_present:
                 plt.plot(traj[:, 0], H - traj[:, 1], 'r-')
+                if traj.shape[0] < 2:
+                    continue
+                x = traj[-2, 0]
+                y = H - traj[-2, 1]
+                dx = traj[-1, 0] - x
+                dy = H - traj[-1, 1] - y
+                plt.arrow(x, y, dx, dy, head_width=4, color='r')
 
             plt.subplot(num_rows, num_cols, 2 * num_cols + 2)
             plt.imshow(future_rgb)
             for traj in trajs_future:
                 plt.plot(traj[:, 0], H - traj[:, 1], 'r-')
+                if traj.shape[0] < 2:
+                    continue
+                x = traj[-2, 0]
+                y = H - traj[-2, 1]
+                dx = traj[-1, 0] - x
+                dy = H - traj[-1, 1] - y
+                plt.arrow(x, y, dx, dy, head_width=4, color='r')
 
             plt.subplot(num_rows, num_cols, 2 * num_cols + 3)
             plt.imshow(full_rgb)
             for traj in trajs_full:
                 plt.plot(traj[:, 0], H - traj[:, 1], 'r-')
+                if traj.shape[0] < 2:
+                    continue
+                x = traj[-2, 0]
+                y = H - traj[-2, 1]
+                dx = traj[-1, 0] - x
+                dy = H - traj[-1, 1] - y
+                plt.arrow(x, y, dx, dy, head_width=4, color='r')
+
+            if 'gt_lanes' in bev.keys():
+                gt_lanes = bev['gt_lanes']
+                plt.subplot(num_rows, num_cols, 2 * num_cols + 4)
+                plt.imshow(full_road, vmin=0, vmax=1)
+                for lane in gt_lanes:
+                    plt.plot(lane[:, 0], H - lane[:, 1])
+                    if lane.shape[0] < 2:
+                        continue
+                    x = lane[-2, 0]
+                    y = H - lane[-2, 1]
+                    dx = lane[-1, 0] - x
+                    dy = H - lane[-1, 1] - y
+                    plt.arrow(x, y, dx, dy, head_width=4, color='k')
 
             if num_imgs > 0:
                 for idx in range(num_imgs):

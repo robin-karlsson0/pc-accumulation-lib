@@ -77,6 +77,11 @@ class BEVGenerator(ABC):
         other_trajs = self.extract_other_traj_dicts(trajs)
         other_trajs_present, other_trajs_future, other_trajs_full = other_trajs
 
+        if "gt_lanes" in trajs.keys():
+            gt_lane_trajs = self.extract_gt_lane_dicts(trajs)
+        else:
+            gt_lane_trajs = None
+
         aug_view_size = zoom_scalar * self.view_size
 
         if do_warping is False:
@@ -93,6 +98,16 @@ class BEVGenerator(ABC):
             pc_present, trajs_present, rot_ang, trans_dx, trans_dy,
             aug_view_size)
 
+        if "gt_lanes" in trajs.keys():
+            dummy_pc = np.zeros((1, pc_present.shape[1]))
+            _, gt_lane_trajs = self.preprocess_pc_and_trajs(
+                dummy_pc, gt_lane_trajs, rot_ang, trans_dx, trans_dy,
+                aug_view_size)
+            # Remove empty GT lanes outside BEV
+            gt_lane_trajs = [
+                lane for lane in gt_lane_trajs if lane.shape[0] > 0
+            ]
+
         if pc_future is not None:
             trajs_future = [ego_traj_future] + other_trajs_future
             pc_future, trajs_future = self.preprocess_pc_and_trajs(
@@ -105,7 +120,7 @@ class BEVGenerator(ABC):
                 aug_view_size)
 
         bev = self.generate_bev(pc_present, pc_future, pc_full, trajs_present,
-                                trajs_future, trajs_full)
+                                trajs_future, trajs_full, gt_lane_trajs)
 
         return bev
 
@@ -702,6 +717,11 @@ class BEVGenerator(ABC):
         other_trajs_future = trajs['other_trajs_future']
         other_trajs_full = trajs['other_trajs_full']
         return other_trajs_past, other_trajs_future, other_trajs_full
+
+    @staticmethod
+    def extract_gt_lane_dicts(trajs: dict) -> tuple:
+        gt_lane_trajs = trajs['gt_lanes']
+        return gt_lane_trajs
 
     @staticmethod
     def extract_aug_dict(augs: dict):

@@ -14,7 +14,8 @@ class NuScenesSemanticPointCloudAccumulator(SemanticPointCloudAccumulator):
                  semseg_filters=None,
                  sem_idxs=None,
                  use_gt_sem=None,
-                 bev_params=None):
+                 bev_params=None,
+                 loc=None):
         """
         Args:
             horizon_dist (float): maximum distance that ego vehicle traveled
@@ -25,6 +26,7 @@ class NuScenesSemanticPointCloudAccumulator(SemanticPointCloudAccumulator):
             semseg_filters (list[int]): classes that are removed
             sem_idxs (dict): mapping semseg class to str
             bev_params (dict):
+            loc (str): map
         """
         super().__init__(horizon_dist, icp_threshold, semseg_onnx_path,
                          semseg_filters, sem_idxs, use_gt_sem, bev_params)
@@ -35,6 +37,11 @@ class NuScenesSemanticPointCloudAccumulator(SemanticPointCloudAccumulator):
         # PC matrix column indices
         self.xyz_idx = 0
         self.dyn_idx = 8
+
+        # Keeping record of global coordinate (i.e. map coordinates)
+        self.map = loc
+        self.ego_global_xs = []
+        self.ego_global_ys = []
 
     def integrate(self, observations: list):
         """

@@ -55,6 +55,7 @@ if __name__ == '__main__':
                         default=1,
                         help='Should be 1 to avoid noise not segmented out')
     parser.add_argument('--use_gt_sem', action="store_true")
+    parser.add_argument('--get_gt_lanes', action="store_true")
     # BEV parameters
     parser.add_argument('--bev_output_dir', type=str, default='bevs')
     parser.add_argument('--bevs_per_sample', type=int, default=1)
@@ -192,6 +193,9 @@ if __name__ == '__main__':
                 sem_idxs,
                 args.use_gt_sem,
                 bev_params,
+                loc,
+                args.get_gt_lanes,
+                args.nuscenes_path,
             )
         else:
             sem_pc_accum = NuScenesSemanticPointCloudAccumulator(
@@ -202,6 +206,7 @@ if __name__ == '__main__':
                 sem_idxs,
                 args.use_gt_sem,
                 bev_params,
+                loc,
             )
 
         #################
@@ -210,13 +215,8 @@ if __name__ == '__main__':
         batch_size = 1  # args.accum_batch_size
         num_sweeps = 1
         scene_ids = [scene_id]
-        dataloader = NuScenesDataloader(
-            nusc,
-            scene_ids,
-            args.accum_batch_size,
-            num_sweeps,
-            args.nuscenes_version,
-        )
+        dataloader = NuScenesDataloader(nusc, scene_ids, args.accum_batch_size,
+                                        num_sweeps)
 
         # Integrate entire sequence
         for sample_idx, observations in enumerate(dataloader):
@@ -270,6 +270,12 @@ if __name__ == '__main__':
 
                 if not os.path.isdir(output_path):
                     os.makedirs(output_path)
+
+                # Add sample information
+                bev['scene_idx'] = scene_id
+                bev['map'] = sem_pc_accum.map
+                bev['ego_global_x'] = sem_pc_accum.ego_global_xs[present_idx]
+                bev['ego_global_y'] = sem_pc_accum.ego_global_ys[present_idx]
 
                 sem_pc_accum.write_compressed_pickle(bev, filename,
                                                      output_path)
