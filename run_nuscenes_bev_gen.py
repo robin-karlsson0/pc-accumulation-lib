@@ -91,8 +91,16 @@ if __name__ == '__main__':
                         nargs='*',
                         default=[],
                         help='\'night\' etc.')
+    parser.add_argument('--do_scene_idxs',
+                        type=str,
+                        nargs='*',
+                        default=[],
+                        help='6 7 11 ...')
 
     args = parser.parse_args()
+
+    # Process only specified scene ids unless empty
+    do_scene_idxs = [int(idx) for idx in args.do_scene_idxs]
 
     # Semantic exclusion filters
     # 0 : Road
@@ -170,6 +178,12 @@ if __name__ == '__main__':
 
         print(f'Processing scene id {scene_id} | {loc}')
         print(f'\tScene attributes: {scene_attributes}')
+
+        # Optional condition that only process specified idxs if provided
+        if len(do_scene_idxs) > 0:
+            if scene_id not in do_scene_idxs:
+                print(f'\tSkip scene id {scene_id} (not in idx list)')
+                continue
 
         # Skip scene if any attributes are invalid by specified attribute being
         # a substring in a scene description attribute
