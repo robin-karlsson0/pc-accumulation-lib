@@ -81,7 +81,11 @@ bev_000.pkl.gz (dict)
     ['trajs_full']        --> List of np.array (N,2) [x,y] in img coords.
     # Optional GT lanes
     ['gt_lanes']          --> List of np.array (N,2) [x,y] in img coords.
-
+    # Sample information
+    ['scene_idx']         --> int
+    ['map']               --> str
+    ['ego_global_x']      --> float
+    ['ego_global_y']      --> float
 ```
 
 

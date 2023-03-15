@@ -1,5 +1,6 @@
 from multiprocessing import Pool
 
+import matplotlib.pyplot as plt
 import numpy as np
 import open3d as o3d
 
@@ -99,6 +100,41 @@ class NuScenesOracleSemanticPointCloudAccumulator(SemanticPointCloudAccumulator
         self.get_gt_lanes = get_gt_lanes
         if self.get_gt_lanes:
             self.gt_lane_poses = get_centerlines(dataroot, loc)
+
+    def viz_gt_lane_map(self, grid_spacing: float = 50):
+        '''
+        Generate a lane map plot in global (i.e. map) coordinates.
+        '''
+        x0 = np.inf
+        y0 = np.inf
+        x1 = -np.inf
+        y1 = -np.inf
+        for gt_lane_pose in self.gt_lane_poses:
+            plt.plot(gt_lane_pose[:, 0], gt_lane_pose[:, 1])
+
+            x_min = np.min(gt_lane_pose[:, 0])
+            x_max = np.max(gt_lane_pose[:, 0])
+            y_min = np.min(gt_lane_pose[:, 1])
+            y_max = np.max(gt_lane_pose[:, 1])
+            if x_min < x0:
+                x0 = x_min
+            if y_min < y0:
+                y0 = y_min
+            if x_max > x1:
+                x1 = x_max
+            if y_max > y1:
+                y1 = y_max
+
+        # Make ticks multiples of 10 and extend beyond data
+        x0 = (x0 // 10) * 10
+        y0 = (y0 // 10) * 10
+        x1 = (x1 // 10) * 10 + grid_spacing
+        y1 = (y1 // 10) * 10 + grid_spacing
+
+        plt.grid()
+        plt.xticks(np.arange(x0, x1, grid_spacing))
+        plt.yticks(np.arange(y0, y1, grid_spacing))
+        plt.show()
 
     def integrate(self, observations: list):
         """
