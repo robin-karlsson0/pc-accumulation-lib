@@ -48,7 +48,7 @@ if __name__ == '__main__':
     parser.add_argument('--accum_batch_size', type=int, default=1)
     parser.add_argument('--accum_horizon_dist',
                         type=float,
-                        default=300,
+                        default=200,
                         help='From front to back')
     parser.add_argument('--num_sweeps',
                         type=int,
@@ -59,7 +59,7 @@ if __name__ == '__main__':
     # BEV parameters
     parser.add_argument('--bev_output_dir', type=str, default='bevs')
     parser.add_argument('--bevs_per_sample', type=int, default=1)
-    parser.add_argument('--bev_horizon_dist', type=int, default=120)
+    parser.add_argument('--bev_horizon_dist', type=int, default=10)
     parser.add_argument('--bev_dist_between_samples',
                         type=int,
                         default=1,
@@ -70,19 +70,19 @@ if __name__ == '__main__':
                         help='sem or rgb')
     parser.add_argument('--bev_view_size',
                         type=float,
-                        default=80.,
+                        default=51.2,
                         help='BEV representation size in [m]')
     parser.add_argument('--bev_pixel_size',
                         type=int,
-                        default=512,
+                        default=256,
                         help='BEV representation size in [px]')
     parser.add_argument('--bev_max_trans_radius', type=float, default=0)
     parser.add_argument('--bev_zoom_thresh', type=float, default=0)
     parser.add_argument('--bev_do_warp', action="store_true")
-    parser.add_argument('--int_scaler', type=float, default=1.)
-    parser.add_argument('--int_sep_scaler', type=float, default=1.)
-    parser.add_argument('--int_mid_threshold', type=float, default=0.5)
-    parser.add_argument('--height_filter', type=float, default=None)
+    parser.add_argument('--int_scaler', type=float, default=1)
+    parser.add_argument('--int_sep_scaler', type=float, default=30)
+    parser.add_argument('--int_mid_threshold', type=float, default=0.12)
+    parser.add_argument('--height_filter', type=float, default=3)
     # ICP parameters
     parser.add_argument('--icp_threshold', type=float, default=1e3)
     # NuScenes invalid scene attributes

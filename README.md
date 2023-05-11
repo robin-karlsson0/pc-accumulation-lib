@@ -37,11 +37,25 @@ https://drive.google.com/file/d/1-pOhaAX_elDQrhPKz8wZnzAOuUeWCQrQ/view?usp=share
 ```
 python run_kitti360_bev_gen.py dataset_path semseg_path
 
-dataset_path: Path to the KITTI-360 dataset root directory (e.g. `/home/robin/datasets/KITTI-360`)
+dataset_path: Path to the KITTI-360 dataset root directory (e.g. `/home/user/datasets/KITTI-360`)
 semseg_path: path to the downloaded image semantic segmentation ONNX model (e.g. `./semseg_rn50_160k_cm.onnx`)
 ```
 
 See available command line arguments for additional run options.
+
+The output will be saved to the directory `bevs` by default.
+
+4. Run NuScenes BEV generation with oracle pose
+```
+python run_nuscenes_bev_gen.py dataset_path semseg_rn50_160k_cm.onnx --nuscenes_version v1.0-trainval --use_oracle_pose 
+
+dataset_path: Path to the NuScenes dataset root directory (e.g. `/home/user/datasets/NUSCENES`)
+semseg_path: path to the downloaded image semantic segmentation ONNX model (e.g. `./semseg_rn50_160k_cm.onnx`)
+```
+
+See available command line arguments for additional run options.
+
+The output will be saved to the directory `bevs` by default.
 
 ## Generated 'accumulated observations' dataset format
 
@@ -85,7 +99,7 @@ bev_000.pkl.gz (dict)
 ```
 
 
-## Calibration parameters
+## Calibration parameters for KITTI-360
 
 The current implementation supports one forward-facing camera and a 360 deg lidar. The following calibration parameters need to be specified following the formulation used in KITTI-360.
 
