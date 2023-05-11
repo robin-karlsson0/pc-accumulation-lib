@@ -21,31 +21,27 @@ pip install onnxruntime-gpu
 Ref: https://onnxruntime.ai/
 
 ```
-pip3 install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu113
+pip3 install torch torchvision torchaudio
 ```
 Ref: https://pytorch.org/get-started/locally/
 
 ```
 pip install nuscenes-devkit
-pip install einops
-pip install lovely-tensors
 ```
 
-2. Change path to KITTI-360 datasets in the run scripts (`run_pc_accum.py` and `run_bev_gen.py`)
+2. Download the image semantic segmentation ONNX model
+
+https://drive.google.com/file/d/1-pOhaAX_elDQrhPKz8wZnzAOuUeWCQrQ/view?usp=share_link
+
+3. Run KITTI360 BEV generation
 ```
-#################
-#  Sample data
-#################
-kitti360_path = '/home/robin/datasets/KITTI-360'
+python run_kitti360_bev_gen.py dataset_path semseg_path
+
+dataset_path: Path to the KITTI-360 dataset root directory (e.g. `/home/robin/datasets/KITTI-360`)
+semseg_path: path to the downloaded image semantic segmentation ONNX model (e.g. `./semseg_rn50_160k_cm.onnx`)
 ```
-2. Run point cloud accumulation example
-```
-python run_pc_accum.py
-```
-3. Run BEV generation example
-```
-python run_bev_gen.py
-```
+
+See available command line arguments for additional run options.
 
 ## Generated 'accumulated observations' dataset format
 

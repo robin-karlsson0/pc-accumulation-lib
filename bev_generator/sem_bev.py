@@ -7,7 +7,6 @@ from .bev_generator import BEVGenerator
 class SemBEVGenerator(BEVGenerator):
     '''
     '''
-
     def __init__(self,
                  sem_idxs: dict,
                  view_size: int,
@@ -280,7 +279,7 @@ class SemBEVGenerator(BEVGenerator):
 
         # dim (3, H, W) --> (H, W, 3)
         present_rgb = np.transpose(present_rgb, (1, 2, 0))
-        present_rgb = (present_rgb * 255).astype(np.int)
+        present_rgb = (present_rgb * 255).astype(int)
 
         if 'road_future' in bev.keys():
             future_road = bev['road_future']
@@ -298,8 +297,8 @@ class SemBEVGenerator(BEVGenerator):
 
             future_rgb = np.transpose(future_rgb, (1, 2, 0))
             full_rgb = np.transpose(full_rgb, (1, 2, 0))
-            future_rgb = (future_rgb * 255).astype(np.int)
-            full_rgb = (full_rgb * 255).astype(np.int)
+            future_rgb = (future_rgb * 255).astype(int)
+            full_rgb = (full_rgb * 255).astype(int)
 
             size_per_fig = 6
             _ = plt.figure(figsize=(size_per_fig * num_cols,

@@ -1,7 +1,6 @@
 import gzip
 import os
 import pickle
-from multiprocessing import Pool
 
 import numpy as np
 import open3d as o3d
@@ -59,7 +58,6 @@ class SemanticPointCloudAccumulator:
        from calling code (e.g. computing distance between BEV generations)
 
     '''
-
     def __init__(self, horizon_dist: float, icp_threshold: float,
                  semseg_onnx_path: str, semseg_filters: list, sem_idxs: dict,
                  use_gt_sem: bool, bev_params: dict):
@@ -279,77 +277,6 @@ class SemanticPointCloudAccumulator:
         else:
             return [self.semsegs[idx]]
 
-    def generate_bev(self,
-                     present_idx: int = None,
-                     bev_num: int = 1,
-                     gen_future: bool = False):
-        '''
-        Generates a single BEV representation.
-        Args:
-            present_idx: Concatenate all point clouds up to the index.
-                         NOTE: The default value concatenates all point clouds.
-        Returns:
-            bevs: List of dictionaries containg probabilistic semantic gridmaps
-                  and trajectory information.
-        '''
-        # Build up input dictonary
-        pcs = {}
-        poses = {}
-
-        # 'Present' pose is origo
-        if present_idx is None:
-            bev_frame_coords = np.array(self.poses[-1])
-        else:
-            bev_frame_coords = np.array(self.poses[present_idx])
-
-        pc_present = np.concatenate(self.sem_pcs[:present_idx])
-        poses_present = np.concatenate([self.poses[:present_idx]])
-
-        # Transform 'absolute' --> 'bev' coordinates
-        pc_present[:, :3] = pc_present[:, :3] - bev_frame_coords
-        poses_present = poses_present - bev_frame_coords
-
-        pcs.update({'pc_present': pc_present})
-        poses.update({'poses_present': poses_present})
-
-        if gen_future:
-            pc_future = np.concatenate(self.sem_pcs[present_idx:])
-            poses_future = np.concatenate([self.poses[present_idx:]])
-
-            pc_full = np.concatenate(self.sem_pcs)
-            poses_full = np.concatenate([self.poses])
-
-            # Transform 'absolute' --> 'bev' coordinates
-            pc_future[:, :3] = pc_future[:, :3] - bev_frame_coords
-            poses_future = poses_future - bev_frame_coords
-
-            pc_full[:, :3] = pc_full[:, :3] - bev_frame_coords
-            poses_full = poses_full - bev_frame_coords
-        else:
-            pc_future = None
-            poses_future = None
-            pc_full = None
-            poses_full = None
-        pcs.update({'pc_future': pc_future})
-        poses.update({'poses_future': poses_future})
-        pcs.update({'pc_full': pc_full})
-        poses.update({'poses_full': poses_full})
-
-        if bev_num == 1:
-            bev_gen_inputs = (pcs, poses)
-            bevs = self.sem_bev_generator.generate_multiproc(bev_gen_inputs)
-            # Mimic multiprocessing list output
-            bevs = [bevs]
-        else:
-            # Generate BEVs in parallel
-            # Package inputs as a tuple for multiprocessing
-            bev_gen_inputs = [(pcs, poses)] * bev_num
-            pool = Pool(processes=bev_num)
-            bevs = pool.map(self.sem_bev_generator.generate_multiproc,
-                            bev_gen_inputs)
-
-        return bevs
-
     @staticmethod
     def write_compressed_pickle(obj, filename, write_dir):
         '''Converts an object into byte representation and writes a compressed file.
@@ -542,3 +469,9 @@ class SemanticPointCloudAccumulator:
         Visualizes a BEV using the BEV generator's visualization function.
         '''
         self.sem_bev_generator.viz_bev(bev, file_path, rgbs, semsegs)
+
+    def generate_bev(self,
+                     present_idx: int = None,
+                     bev_num: int = 1,
+                     gen_future: bool = False):
+        raise NotImplementedError()

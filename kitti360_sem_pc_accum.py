@@ -1,12 +1,11 @@
 import numpy as np
 import open3d as o3d
 import PIL.Image as Image
-
+from multiprocessing import Pool
 from sem_pc_accum import SemanticPointCloudAccumulator
 
 
 class Kitti360SemanticPointCloudAccumulator(SemanticPointCloudAccumulator):
-
     def __init__(self, horizon_dist: float, calib_params: dict,
                  icp_threshold: float, semseg_onnx_path: str,
                  semseg_filters: list, sem_idxs: dict, use_gt_sem: bool,
@@ -148,6 +147,14 @@ class Kitti360SemanticPointCloudAccumulator(SemanticPointCloudAccumulator):
         # TODO do this earlier to reduce computation?
         pc_velo_rgbsem = self.filter_semseg_pc(pc_velo_rgbsem)
 
+        # Dummy object instance idx
+        pc_inst_idx = np.zeros((pc_velo_rgbsem.shape[0], 1), dtype=float)
+        pc_velo_rgbsem = np.concatenate([pc_velo_rgbsem, pc_inst_idx], axis=1)
+
+        # Dynamic observation (probability)
+        pc_dyn = np.zeros((pc_velo_rgbsem.shape[0], 1), dtype=float)  # dyn
+        pc_velo_rgbsem = np.concatenate([pc_velo_rgbsem, pc_dyn], axis=1)
+
         # Pose of new observations always ego-centered
         pose = [0., 0., 0.]
 
@@ -155,3 +162,82 @@ class Kitti360SemanticPointCloudAccumulator(SemanticPointCloudAccumulator):
         self.pcd_prev = pcd_new
 
         return pc_velo_rgbsem, pose, semseg, T_new_prev
+
+    def generate_bev(self,
+                     present_idx: int = None,
+                     bev_num: int = 1,
+                     gen_future: bool = False):
+        '''
+        Generates a single BEV representation.
+        Args:
+            present_idx: Concatenate all point clouds up to the index.
+                         NOTE: The default value concatenates all point clouds.
+        Returns:
+            bevs: List of dictionaries containg probabilistic semantic gridmaps
+                  and trajectory information.
+        '''
+        # Build up input dictonary
+        pcs = {}
+        trajs = {}
+
+        # 'Present' pose is origo
+        if present_idx is None:
+            bev_frame_coords = np.array(self.poses[-1])
+        else:
+            bev_frame_coords = np.array(self.poses[present_idx])
+
+        pc_present = np.concatenate(self.sem_pcs[:present_idx])
+        ego_traj_present = np.concatenate([self.poses[:present_idx]])
+
+        # Transform 'absolute' --> 'bev' coordinates
+        pc_present[:, :3] = pc_present[:, :3] - bev_frame_coords
+        ego_traj_present = ego_traj_present - bev_frame_coords
+
+        pcs.update({'pc_present': pc_present})
+        trajs.update({'ego_traj_present': ego_traj_present})
+        trajs.update({'other_trajs_present': []})
+
+        if gen_future:
+            pc_future = np.concatenate(self.sem_pcs[present_idx:])
+            ego_traj_future = np.concatenate([self.poses[present_idx:]])
+
+            pc_full = np.concatenate(self.sem_pcs)
+            ego_traj_full = np.concatenate([self.poses])
+
+            # Transform 'absolute' --> 'bev' coordinates
+            pc_future[:, :3] = pc_future[:, :3] - bev_frame_coords
+            ego_traj_future = ego_traj_future - bev_frame_coords
+            other_trajs_future = []
+
+            pc_full[:, :3] = pc_full[:, :3] - bev_frame_coords
+            ego_traj_full = ego_traj_full - bev_frame_coords
+            other_trajs_full = []
+        else:
+            pc_future = None
+            ego_traj_future = None
+            other_trajs_future = None
+            pc_full = None
+            ego_traj_full = None
+            other_trajs_full = None
+
+        pcs.update({'pc_future': pc_future})
+        trajs.update({'ego_traj_future': ego_traj_future})
+        trajs.update({'other_trajs_future': other_trajs_future})
+        pcs.update({'pc_full': pc_full})
+        trajs.update({'ego_traj_full': ego_traj_full})
+        trajs.update({'other_trajs_full': other_trajs_full})
+
+        if bev_num == 1:
+            bev_gen_inputs = (pcs, trajs)
+            bevs = self.sem_bev_generator.generate_multiproc(bev_gen_inputs)
+            # Mimic multiprocessing list output
+            bevs = [bevs]
+        else:
+            # Generate BEVs in parallel
+            # Package inputs as a tuple for multiprocessing
+            bev_gen_inputs = [(pcs, trajs)] * bev_num
+            pool = Pool(processes=bev_num)
+            bevs = pool.map(self.sem_bev_generator.generate_multiproc,
+                            bev_gen_inputs)
+
+        return bevs
