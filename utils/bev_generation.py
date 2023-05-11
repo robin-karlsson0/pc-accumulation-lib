@@ -1,9 +1,6 @@
 import os
 import time
 
-import matplotlib as mpl
-
-mpl.use('agg')  # Must be before pyplot import
 import matplotlib.pyplot as plt
 import numpy as np
 

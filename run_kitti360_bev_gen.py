@@ -4,8 +4,8 @@ import os
 import numpy as np
 
 from datasets.kitti360_utils import get_camera_intrinsics, get_transf_matrices
+from kitti360_sem_pc_accum import Kitti360SemanticPointCloudAccumulator
 from obs_dataloaders.kitti360_obs_dataloader import Kitti360Dataloader
-from sem_pc_accum import SemanticPointCloudAccumulator
 
 
 def dist(pose_0: np.array, pose_1: np.array):
@@ -31,10 +31,6 @@ if __name__ == '__main__':
         type=str,
         help='Relative path to a semantic segmentation ONNX model.')
     # Accumulator parameters
-    parser.add_argument('--accumulation_horizon',
-                        type=int,
-                        default=200,
-                        help='Number of point clouds to accumulate.')
     parser.add_argument('--accum_batch_size',
                         type=int,
                         default=2,
@@ -67,6 +63,9 @@ if __name__ == '__main__':
     parser.add_argument('--bev_max_trans_radius', type=float, default=0)
     parser.add_argument('--bev_zoom_thresh', type=float, default=0)
     parser.add_argument('--bev_do_warp', action="store_true")
+    parser.add_argument('--int_scaler', type=float, default=1.)
+    parser.add_argument('--int_sep_scaler', type=float, default=1.)
+    parser.add_argument('--int_mid_threshold', type=float, default=0.5)
     # ICP parameters
     parser.add_argument('--icp_threshold', type=float, default=1e3)
 
@@ -132,6 +131,9 @@ if __name__ == '__main__':
         'max_trans_radius': args.bev_max_trans_radius,  # 10,
         'zoom_thresh': args.bev_zoom_thresh,  # 0.10,
         'do_warp': args.bev_do_warp,
+        'int_scaler': args.int_scaler,
+        'int_sep_scaler': args.int_sep_scaler,
+        'int_mid_threshold': args.int_mid_threshold,
     }
 
     savedir = args.bev_output_dir
@@ -139,7 +141,7 @@ if __name__ == '__main__':
     viz_to_disk = True  # For debugging purposes
 
     # Initialize accumulator
-    sem_pc_accum = SemanticPointCloudAccumulator(
+    sem_pc_accum = Kitti360SemanticPointCloudAccumulator(
         args.accum_horizon_dist,
         calib_params,
         args.icp_threshold,
@@ -183,8 +185,6 @@ if __name__ == '__main__':
 
         # Number of observations removed from memory (used for pose diff.)
         num_obs_removed = sem_pc_accum.integrate(observations)
-
-        # print(f'    num_obs_removed {num_obs_removed}')
 
         # Update last sampled 'abs pose' relative to 'ego pose' by
         # incrementally applying each pose change associated with each

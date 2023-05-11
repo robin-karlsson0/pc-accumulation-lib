@@ -25,6 +25,12 @@ pip3 install torch torchvision torchaudio --extra-index-url https://download.pyt
 ```
 Ref: https://pytorch.org/get-started/locally/
 
+```
+pip install nuscenes-devkit
+pip install einops
+pip install lovely-tensors
+```
+
 2. Change path to KITTI-360 datasets in the run scripts (`run_pc_accum.py` and `run_bev_gen.py`)
 ```
 #################
@@ -40,6 +46,48 @@ python run_pc_accum.py
 ```
 python run_bev_gen.py
 ```
+
+## Generated 'accumulated observations' dataset format
+
+```
+dataset/
+    subdir000/
+        bev_000.pkl.gz
+        ...
+    ...
+
+bev_000.pkl.gz (dict)
+    # Present (past --> present)
+    ['road_present']      --> np.array (256,256)
+    ['intensity_present'] --> np.array (256,256)
+    ['rgb_present']       --> np.array (256,256)
+    ['dynamic_present']   --> np.array (256,256)
+    ['elevation_present'] --> np.array (256,256)
+    # Future (present --> future)
+    ['road_future']       --> np.array (256,256)
+    ['intensity_future']  --> np.array (256,256)
+    ['rgb_future']        --> np.array (256,256)
+    ['dynamic_future']    --> np.array (256,256)
+    ['elevation_future']  --> np.array (256,256)
+    # Full (past --> future)
+    ['road_full']         --> np.array (256,256)
+    ['intensity_full']    --> np.array (256,256)
+    ['rgb_full']          --> np.array (256,256)
+    ['dynamic_full']      --> np.array (256,256)
+    ['elevation_full']    --> np.array (256,256)
+    # Trajectories
+    ['trajs_present']     --> List of np.array (N,2) [x,y] in img coords.
+    ['trajs_future']      --> List of np.array (N,2) [x,y] in img coords.
+    ['trajs_full']        --> List of np.array (N,2) [x,y] in img coords.
+    # Optional GT lanes
+    ['gt_lanes']          --> List of np.array (N,2) [x,y] in img coords.
+    # Sample information
+    ['scene_idx']         --> int
+    ['map']               --> str
+    ['ego_global_x']      --> float
+    ['ego_global_y']      --> float
+```
+
 
 ## Calibration parameters
 
